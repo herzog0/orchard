@@ -21,11 +21,15 @@ unobstructed, never colliding with a sibling or with the main checkout.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/install.sh | bash
+curl -fsSL https://teodoro.sh/orchard.sh | bash
 ```
 
-(Once `teodoro.sh` is live, `curl -fsSL https://teodoro.sh/orchard.sh | bash`
-will do the same thing.)
+Or, before DNS/Pages finishes propagating (or if you just prefer GitHub
+directly):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
+```
 
 This writes `SKILL.md` and `references/*.md` into
 `~/.claude/skills/orchard/`. Safe to re-run - no `sudo`, no prompts, no
@@ -52,8 +56,10 @@ references/
   companion-skills-template.md  - the generated skill family's shape
   audit-checklist.md            - concrete stack-detection commands
 scripts/
-  generate_installer.py         - rebuilds install.sh from the two above
-install.sh                      - generated; never hand-edit
+  generate_installer.py         - rebuilds orchard.sh from the two above
+orchard.sh                      - generated; never hand-edit
+CNAME                           - GitHub Pages custom domain (teodoro.sh)
+.nojekyll                       - tells Pages to serve files as-is, no Jekyll
 ```
 
 After editing `SKILL.md` or anything under `references/`, regenerate the
@@ -65,6 +71,5 @@ python3 scripts/generate_installer.py
 
 ## Status
 
-Private for now. Built for one person's own workflow first; the generic
-design is meant to hold up for other stacks and other people once this
-goes public.
+Public. Built for one person's own workflow first; the generic design is
+meant to hold up for other stacks and other people too.

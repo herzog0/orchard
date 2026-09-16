@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# orchard installer - https://github.com/herzog0/orchard
+# orchard installer - https://teodoro.sh/orchard.sh
 #
 # Installs the orchard Claude Code skill into ~/.claude/skills/orchard/.
 # Safe to re-run - it just overwrites the skill files with the current
 # published version.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/install.sh | bash
+#   curl -fsSL https://teodoro.sh/orchard.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
 #
 # GENERATED FILE - do not hand-edit. Rebuilt by scripts/generate_installer.py
 # from the live SKILL.md/references/ in this repo.

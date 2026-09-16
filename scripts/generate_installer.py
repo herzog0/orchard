@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Regenerate install.sh from SKILL.md and references/ in this repo.
+"""Regenerate orchard.sh from SKILL.md and references/ in this repo.
 
 This repo's root doubles as the Claude Code skill directory - in the
 author's own setup, ~/.claude/skills/orchard is a symlink to this checkout,
 so editing SKILL.md or references/ here is live immediately. Re-run this
-script after any such edit to keep install.sh in sync; never hand-edit
-install.sh directly.
+script after any such edit to keep orchard.sh in sync; never hand-edit
+orchard.sh directly. Served at https://teodoro.sh/orchard.sh via GitHub
+Pages (CNAME file at repo root) and directly from GitHub at
+https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh.
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "install.sh"
+OUT = ROOT / "orchard.sh"
 
 FILES = [
     "SKILL.md",
@@ -20,14 +22,15 @@ FILES = [
 ]
 
 HEADER = """#!/usr/bin/env bash
-# orchard installer - https://github.com/herzog0/orchard
+# orchard installer - https://teodoro.sh/orchard.sh
 #
 # Installs the orchard Claude Code skill into ~/.claude/skills/orchard/.
 # Safe to re-run - it just overwrites the skill files with the current
 # published version.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/install.sh | bash
+#   curl -fsSL https://teodoro.sh/orchard.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
 #
 # GENERATED FILE - do not hand-edit. Rebuilt by scripts/generate_installer.py
 # from the live SKILL.md/references/ in this repo.
