@@ -1,22 +1,35 @@
 # Orchard
 
-A Claude Code skill that bootstraps, for the project you're standing in,
-a project-specific worktree-isolation CLI, a short shell alias for it, and
-a matching family of alias-prefixed parallel-agent skills (a free-text task
-launcher, a ticket launcher, PR reviewers, and two skills that let you
-retune the review checklist or PR-description template by describing the
-change in a sentence).
+**A Claude Code skill that bootstraps isolated, parallel dev environments — and the skills to drive them — for whatever project you point it at.**
 
-It never copies another project's tooling verbatim. It audits the target
-repo's actual stack - containerized or not, whatever ticket tracker and PR
-conventions it already has - proposes an isolation strategy, and generates
-fresh, stack-appropriate code and skills against what it actually finds.
+> Named for [Euclid's orchard](https://en.wikipedia.org/wiki/Visible_points): plant a tree at every lattice point, and the ones visible from the origin turn out to be exactly the coprime ones — each standing in its own clear line, never blocking or blocked by another. Every worktree Orchard sets up is meant to stand the same way: independent, unobstructed, never colliding with a sibling or with the main checkout.
 
-**Named for Euclid's orchard**: plant a tree at every lattice point, and
-the ones visible from the origin turn out to be exactly the coprime ones -
-each standing in its own clear line, never blocking or blocked by another.
-Every worktree Orchard sets up is meant to stand the same way: independent,
-unobstructed, never colliding with a sibling or with the main checkout.
+---
+
+## What it does
+
+Point Orchard at a repo and it:
+
+1. **Audits** the project's actual stack — containerized or not, whatever ticket tracker and PR conventions it already has.
+2. **Proposes** an isolation strategy (ports/services if there's a runtime stack, or just independent dependency installs if there isn't) and stops for your confirmation.
+3. **Generates**, fresh and stack-appropriate — never copied from another project:
+   - a worktree-isolation CLI, with a short shell alias registered for it
+   - a family of companion skills, alias-prefixed so they're easy to find as a group
+
+It never assumes Docker, a specific tracker, or a specific language. It builds only the machinery a given project's audit actually justifies.
+
+## What you get
+
+| Skill | Input | Output |
+|---|---|---|
+| `<alias>` | free-text task(s) | one isolated branch + PR-description file per task |
+| `<alias>-address-tickets` | ticket numbers/URLs | same, ticket body is the spec |
+| `<alias>-review-prs` | PR number(s) | a saved review per PR, worktree-per-PR, parallel |
+| `<alias>-pr-review` | one PR, or the current branch | a saved review, no worktree needed |
+| `<alias>-update-review-criteria` | a sentence describing a criteria change | surgically edits the review checklist |
+| `<alias>-update-pr-template` | a sentence describing a format change | surgically edits the PR-description template |
+
+Generated skills never assume the reader has read Orchard's own instructions — each one states its full set of rules (never push, never open a PR, any ambient-state pinning ritual, attribution conventions) on its own.
 
 ## Install
 
@@ -24,46 +37,44 @@ unobstructed, never colliding with a sibling or with the main checkout.
 curl -fsSL https://teodoro.sh/orchard.sh | bash
 ```
 
-Or, before DNS/Pages finishes propagating (or if you just prefer GitHub
-directly):
+Or, straight from GitHub (works even before DNS/Pages finishes propagating):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
 ```
 
-This writes `SKILL.md` and `references/*.md` into
-`~/.claude/skills/orchard/`. Safe to re-run - no `sudo`, no prompts, no
-side effects outside that one directory.
+Both write `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard/`. Safe to re-run — no `sudo`, no prompts, no side effects outside that one directory.
 
-Restart Claude Code (or start a new session) afterward so it picks up the
-skill, then run `/orchard` in any project.
+Restart Claude Code (or start a new session) afterward so it picks up the skill, then run `/orchard` in any project.
 
-### Alternative: clone directly
+<details>
+<summary><strong>Alternative: clone directly</strong></summary>
 
-If you'd rather track updates with git instead of re-running the
-installer:
+If you'd rather track updates with git instead of re-running the installer:
 
 ```bash
 git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard
 ```
 
+</details>
+
 ## Repo layout
 
 ```
-SKILL.md                        - the orchestration/interview procedure
-references/
-  cli-architecture.md           - the 9 generic isolation mechanisms
-  companion-skills-template.md  - the generated skill family's shape
-  audit-checklist.md            - concrete stack-detection commands
-scripts/
-  generate_installer.py         - rebuilds orchard.sh from the two above
-orchard.sh                      - generated; never hand-edit
-CNAME                           - GitHub Pages custom domain (teodoro.sh)
-.nojekyll                       - tells Pages to serve files as-is, no Jekyll
+.
+├── SKILL.md                        # the orchestration/interview procedure
+├── references/
+│   ├── cli-architecture.md         # the 9 generic isolation mechanisms
+│   ├── companion-skills-template.md # the generated skill family's shape
+│   └── audit-checklist.md          # concrete stack-detection commands
+├── scripts/
+│   └── generate_installer.py       # rebuilds orchard.sh from the files above
+├── orchard.sh                      # generated — never hand-edit
+├── CNAME                           # GitHub Pages custom domain (teodoro.sh)
+└── .nojekyll                       # serve files as-is, no Jekyll processing
 ```
 
-After editing `SKILL.md` or anything under `references/`, regenerate the
-installer before committing:
+After editing `SKILL.md` or anything under `references/`, regenerate the installer before committing:
 
 ```bash
 python3 scripts/generate_installer.py
@@ -71,5 +82,4 @@ python3 scripts/generate_installer.py
 
 ## Status
 
-Public. Built for one person's own workflow first; the generic design is
-meant to hold up for other stacks and other people too.
+Public. Built for one person's own workflow first; the generic design is meant to hold up for other stacks and other people too.
