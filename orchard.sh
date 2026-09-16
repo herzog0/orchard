@@ -50,8 +50,9 @@ it never becomes part of the thing it builds.
    against this project's own tracker, branch, and PR conventions.
 
 **Naming convention - not optional.** Every generated skill's name is the
-alias, prefixed onto a role name: `<alias>`, `<alias>-address-tickets`,
-`<alias>-review-prs`, `<alias>-pr-review`, `<alias>-update-review-criteria`,
+alias prefixed onto a role name, with no bare/unsuffixed exception:
+`<alias>-free-ask`, `<alias>-address-tickets`, `<alias>-review-prs`,
+`<alias>-pr-review`, `<alias>-update-review-criteria`,
 `<alias>-update-pr-template`. This is what makes a related family of skills
 show up together and be findable by prefix - a `review-prs` with no prefix
 looks like an unrelated skill six months later. See
@@ -224,7 +225,7 @@ Ask about, at minimum:
 - **Which companion skills to generate**, out of the six roles in
   [references/companion-skills-template.md](references/companion-skills-template.md).
   Default to all six, but two are conditional: drop `address-tickets` (and,
-  since it edits `address-tickets`'/the bare alias's PR-description
+  since it edits `address-tickets`'/`free-ask`'s PR-description
   template, consider dropping `update-pr-template` too if there's no
   templated PR flow at all) if step 1 found no ticket tracker; the two
   `update-*` skills only make sense once their target skill exists, so
@@ -262,9 +263,10 @@ Ask about, at minimum:
   file outside the project (see this skill's non-negotiables above). After
   writing it, tell the user to `source` the rc file or open a new terminal;
   don't assume the current shell picks it up.
-- Write each confirmed companion skill to `~/.claude/skills/<role-dir>/SKILL.md`,
-  where `<role-dir>` is the alias itself for the free-text launcher and
-  `<alias>-<role>` for every other role (`address-tickets`, `review-prs`,
+- Write each confirmed companion skill to
+  `~/.claude/skills/<alias>-<role>/SKILL.md` - every role, including the
+  free-text launcher (`free-ask`), gets the alias prefix; there is no
+  bare-alias skill name (`free-ask`, `address-tickets`, `review-prs`,
   `pr-review`, `update-review-criteria`, `update-pr-template`) - see the
   naming table in
   [references/companion-skills-template.md](references/companion-skills-template.md).
@@ -297,7 +299,7 @@ unilaterally, the user may want to keep using it.
 One short summary: what was written and where (CLI path, README, the alias
 and the rc file it was added to, each skill's path), the isolation strategy
 chosen and why, and the exact next command to try (e.g.
-`/<alias> <a small real task>`). Note that skills registered mid-session may
+`/<alias>-free-ask <a small real task>`). Note that skills registered mid-session may
 need a session restart to show up, and that the alias needs a new terminal
 (or a manual `source`) before it works interactively.
 ORCHARD_EOF
@@ -529,20 +531,20 @@ cat > "$SKILL_DIR/references/companion-skills-template.md" <<'ORCHARD_EOF'
 # Companion skill family - generic shape
 
 Six roles, one naming convention. **Every generated skill's directory name
-is the alias, alone or prefixed onto a role name** - this is what makes a
-related family of skills show up together and be findable by prefix later,
-instead of scattering as unrelated-looking names (`review-prs`,
-`address-tickets`) that nobody six months from now will guess belong
-together.
+is the alias prefixed onto a role name, with no bare/unsuffixed exception**
+- this is what makes a related family of skills show up together and be
+findable by prefix later, instead of scattering as unrelated-looking names
+(`review-prs`, `address-tickets`) that nobody six months from now will
+guess belong together.
 
 | Role | Skill name | Input | Produces | Shape |
 |---|---|---|---|---|
-| Free-text task launcher | `<alias>` (bare) | free-text task(s), not a ticket | one branch + PR-description file per task | fan-out: N isolated worktrees, parallel sub-agents |
+| Free-text task launcher | `<alias>-free-ask` | free-text task(s), not a ticket | one branch + PR-description file per task | fan-out: N isolated worktrees, parallel sub-agents |
 | Ticket launcher | `<alias>-address-tickets` | real ticket numbers/URLs | same, but the ticket body is the spec | fan-out, same shape as above |
 | Batch PR reviewer | `<alias>-review-prs` | existing PR number(s) | a saved review file per PR, no edits | fan-out: N isolated worktrees (PR head checked out), parallel, read-only |
 | Single PR/branch reviewer | `<alias>-pr-review` | one PR number, or the current branch | a saved review file | no fan-out, no worktree - reviews in place against whatever's already checked out or a fetched diff |
 | Review-criteria tuner | `<alias>-update-review-criteria` | a sentence (or more) describing what to start/stop checking for | a surgical edit to `<alias>-pr-review`'s and/or `<alias>-review-prs`'s checklist | single-shot, no fan-out, no worktree |
-| PR-template tuner | `<alias>-update-pr-template` | a sentence (or more) describing how the PR-description format should change | a surgical edit to the shared PR-description template used by `<alias>` and `<alias>-address-tickets` | single-shot, no fan-out, no worktree |
+| PR-template tuner | `<alias>-update-pr-template` | a sentence (or more) describing how the PR-description format should change | a surgical edit to the shared PR-description template used by `<alias>-free-ask` and `<alias>-address-tickets` | single-shot, no fan-out, no worktree |
 
 Generate only the roles confirmed in SKILL.md step 3. If there's no ticket
 tracker, there is no `address-tickets` role - don't generate a shell of one.
@@ -561,9 +563,11 @@ Placeholders used throughout:
   ...`). Never substitute the alias here - a shell alias is an
   interactive-shell convenience that a non-interactive command (what a
   sub-agent actually runs) is not guaranteed to have loaded.
-- `{{CLI_ALIAS}}` - the short alias, used only for: the skill directory
-  names themselves, and user-facing prose telling the human what they'll
-  type day to day ("run `{{CLI_ALIAS}} status` to see what's active").
+- `{{CLI_ALIAS}}` - the short alias, used only for: building the skill
+  directory names (always as `{{CLI_ALIAS}}-<role>` - the free-text
+  launcher is `{{CLI_ALIAS}}-free-ask`, never the bare alias), and
+  user-facing prose telling the human what they'll type day to day for the
+  CLI itself ("run `{{CLI_ALIAS}} status` to see what's active").
 - `{{REPO}}` - the repo identifier PRs/tickets get created against
 - `{{BASE_BRANCH}}` - default base branch
 - `{{BRANCH_PREFIX}}` - this user's branch naming prefix for this project
@@ -625,7 +629,7 @@ Applies to the free-text launcher, ticket launcher, and batch PR reviewer -
 not the two tuner roles, which are single-shot and have their own section
 below.
 
-1. **Determine input shape.** Split free text into tasks (bare `{{CLI_ALIAS}}`),
+1. **Determine input shape.** Split free text into tasks (`{{CLI_ALIAS}}-free-ask`),
    or normalize ticket references (`{{CLI_ALIAS}}-address-tickets`), or
    normalize PR numbers (`{{CLI_ALIAS}}-review-prs`). If genuinely ambiguous
    how to split a batch, ask rather than guess - a wrong split is expensive
@@ -655,8 +659,8 @@ below.
 
 1. Read the task/ticket text as the complete spec (ticket body/comments are
    the spec for `{{CLI_ALIAS}}-address-tickets`; the literal text is the
-   spec for bare `{{CLI_ALIAS}}` - don't expand scope from what a similar
-   ticket elsewhere might have asked).
+   spec for `{{CLI_ALIAS}}-free-ask` - don't expand scope from what a
+   similar ticket elsewhere might have asked).
 2. Confirm the worktree: right path, right branch, nothing about it
    surprising. Stop and report rather than self-correcting into a
    different worktree.
@@ -743,7 +747,8 @@ has both technical and non-technical reviewers - drop that split if it
 doesn't apply here. Mirror whatever length/format convention this project's
 own PR template already implies (from the audit); don't invent a format
 the project doesn't use elsewhere. This template's exact text is
-`{{PR_TEMPLATE_LOCATION}}` - what `<alias>-update-pr-template` edits. Once
+`{{PR_TEMPLATE_LOCATION}}` - what `<alias>-update-pr-template` edits.
+Written by both `<alias>-free-ask` and `<alias>-address-tickets`. Once
 written, it's reachable via `{{CLI_ALIAS}} pr list`/`{{CLI_ALIAS}} pr show`
 (Mechanism 9) - a sub-agent never needs those, but the report both launcher
 roles print should mention them so the human isn't left hunting a path.

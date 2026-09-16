@@ -25,8 +25,9 @@ it never becomes part of the thing it builds.
    against this project's own tracker, branch, and PR conventions.
 
 **Naming convention - not optional.** Every generated skill's name is the
-alias, prefixed onto a role name: `<alias>`, `<alias>-address-tickets`,
-`<alias>-review-prs`, `<alias>-pr-review`, `<alias>-update-review-criteria`,
+alias prefixed onto a role name, with no bare/unsuffixed exception:
+`<alias>-free-ask`, `<alias>-address-tickets`, `<alias>-review-prs`,
+`<alias>-pr-review`, `<alias>-update-review-criteria`,
 `<alias>-update-pr-template`. This is what makes a related family of skills
 show up together and be findable by prefix - a `review-prs` with no prefix
 looks like an unrelated skill six months later. See
@@ -199,7 +200,7 @@ Ask about, at minimum:
 - **Which companion skills to generate**, out of the six roles in
   [references/companion-skills-template.md](references/companion-skills-template.md).
   Default to all six, but two are conditional: drop `address-tickets` (and,
-  since it edits `address-tickets`'/the bare alias's PR-description
+  since it edits `address-tickets`'/`free-ask`'s PR-description
   template, consider dropping `update-pr-template` too if there's no
   templated PR flow at all) if step 1 found no ticket tracker; the two
   `update-*` skills only make sense once their target skill exists, so
@@ -237,9 +238,10 @@ Ask about, at minimum:
   file outside the project (see this skill's non-negotiables above). After
   writing it, tell the user to `source` the rc file or open a new terminal;
   don't assume the current shell picks it up.
-- Write each confirmed companion skill to `~/.claude/skills/<role-dir>/SKILL.md`,
-  where `<role-dir>` is the alias itself for the free-text launcher and
-  `<alias>-<role>` for every other role (`address-tickets`, `review-prs`,
+- Write each confirmed companion skill to
+  `~/.claude/skills/<alias>-<role>/SKILL.md` - every role, including the
+  free-text launcher (`free-ask`), gets the alias prefix; there is no
+  bare-alias skill name (`free-ask`, `address-tickets`, `review-prs`,
   `pr-review`, `update-review-criteria`, `update-pr-template`) - see the
   naming table in
   [references/companion-skills-template.md](references/companion-skills-template.md).
@@ -272,6 +274,6 @@ unilaterally, the user may want to keep using it.
 One short summary: what was written and where (CLI path, README, the alias
 and the rc file it was added to, each skill's path), the isolation strategy
 chosen and why, and the exact next command to try (e.g.
-`/<alias> <a small real task>`). Note that skills registered mid-session may
+`/<alias>-free-ask <a small real task>`). Note that skills registered mid-session may
 need a session restart to show up, and that the alias needs a new terminal
 (or a manual `source`) before it works interactively.
