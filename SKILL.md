@@ -5,12 +5,6 @@ description: Bootstrap a project-specific worktree-isolation CLI, a short shell 
 
 # Orchard (meta-bootstrapper)
 
-*Named for Euclid's orchard: plant a tree at every lattice point, and the
-ones visible from the origin turn out to be exactly the coprime ones - each
-standing in its own clear line, never blocking or blocked by another. Every
-generated worktree is meant to stand the same way: independent, unobstructed,
-never colliding with a sibling or with the main checkout.*
-
 Turns "I want what boostctl gave that other project" into a CLI, its alias,
 and a skill family built **for this project's actual stack** - not a port of
 someone else's code. This skill's job is the interview and the generation;

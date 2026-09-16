@@ -2,10 +2,6 @@
 
 **A Claude Code skill that bootstraps isolated, parallel dev environments — and the skills to drive them — for whatever project you point it at.**
 
-> Named for [Euclid's orchard](https://en.wikipedia.org/wiki/Visible_points): plant a tree at every lattice point, and the ones visible from the origin turn out to be exactly the coprime ones — each standing in its own clear line, never blocking or blocked by another. Every worktree Orchard sets up is meant to stand the same way: independent, unobstructed, never colliding with a sibling or with the main checkout.
-
----
-
 ## What it does
 
 Point Orchard at a repo and it:
