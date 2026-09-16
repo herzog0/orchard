@@ -15,7 +15,11 @@ it never becomes part of the thing it builds.
 1. A worktree-isolation CLI, sized to what the project actually needs -
    full port/service isolation for a containerized multi-service app, or
    just independent worktrees + independent dependency installs for a
-   library or CLI project with no runtime service to isolate.
+   library or CLI project with no runtime service to isolate. The CLI
+   always ships with an fzf-backed interactive picker for choosing among
+   several active worktrees/reviews/PRs, falling back to a plain numbered
+   menu when fzf isn't installed - typing full commands by hand always
+   works either way.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
 3. Up to six alias-prefixed companion skills - free-text task launcher,
@@ -66,6 +70,11 @@ is the detection checklist for step 1 below.
   is solving a problem this project doesn't have. Isolation still means
   something (independent worktree, independent dependency install, no
   branch stepping on another), it just doesn't need ports.
+- **Never make an optional tool a hard dependency.** The interactive picker
+  (fzf) is detected at runtime and degrades to a plain numbered menu when
+  it isn't installed - `command -v fzf || die` (refusing to run at all
+  without it) is exactly the shape to avoid. A missing optional tool must
+  never block the CLI from working by typed commands.
 - **The shell rc file is the user's, not this skill's.** Registering the
   alias (step 4) edits `~/.zshrc`/`~/.bashrc`/the fish config - a global file
   outside the project, loaded by every terminal the user opens. Show the
@@ -197,6 +206,16 @@ Ask about, at minimum:
   default silently into reusing something gitignored for an unrelated
   reason - see cli-architecture.md's Mechanism 8. This is where every
   generated skill's PR-description and review artifacts will live.
+- **Interactive picker (fzf)** - check whether `fzf` is already on the
+  user's PATH (step 1's audit should have looked). If not, ask whether to
+  install it now - `brew install fzf` on macOS, or whatever Linux package
+  manager step 1 detected - before generating the CLI. Show the exact
+  install command and get confirmation; never install anything unprompted,
+  same as the shell-rc-file edit in step 4. Either answer is fine: the
+  generated CLI always includes the picker abstraction from
+  [references/cli-architecture.md](references/cli-architecture.md)'s
+  Mechanism 10, falling back to a plain numbered menu when fzf isn't
+  present, so nothing about the CLI's shape depends on this answer.
 - **Which companion skills to generate**, out of the six roles in
   [references/companion-skills-template.md](references/companion-skills-template.md).
   Default to all six, but two are conditional: drop `address-tickets` (and,
@@ -218,7 +237,12 @@ Ask about, at minimum:
   role is generated, and Mechanism 9 (`review`/`pr` list/show/open/path
   commands) once a reviewer role is generated - a saved-review convention
   with no way to browse it is a gap the user will hit on the very first
-  batch review.
+  batch review. Always include Mechanism 10 (the interactive picker) too -
+  the fzf-backed picker plus its plain-numbered-menu fallback, selected at
+  runtime via `command -v fzf`, never a hard dependency. If step 3
+  confirmed installing fzf now, run that confirmed install command as part
+  of this step; if the user declined, generate the CLI exactly the same
+  way - step 5's smoke test just exercises the fallback path instead.
 - If step 3 called for a new scratch directory rather than reusing an
   existing one, create it and add it to `.gitignore` with a one-line
   comment explaining its purpose, as part of this step - don't leave it to

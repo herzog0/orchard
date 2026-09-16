@@ -18,7 +18,7 @@ It never assumes Docker, a specific tracker, or a specific language. It builds o
 
 | Skill | Input | Output |
 |---|---|---|
-| `<alias>` | free-text task(s) | one isolated branch + PR-description file per task |
+| `<alias>-free-ask` | free-text task(s) | one isolated branch + PR-description file per task |
 | `<alias>-address-tickets` | ticket numbers/URLs | same, ticket body is the spec |
 | `<alias>-review-prs` | PR number(s) | a saved review per PR, worktree-per-PR, parallel |
 | `<alias>-pr-review` | one PR, or the current branch | a saved review, no worktree needed |
@@ -60,7 +60,7 @@ git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard
 .
 ├── SKILL.md                        # the orchestration/interview procedure
 ├── references/
-│   ├── cli-architecture.md         # the 9 generic isolation mechanisms
+│   ├── cli-architecture.md         # the 10 generic isolation mechanisms
 │   ├── companion-skills-template.md # the generated skill family's shape
 │   └── audit-checklist.md          # concrete stack-detection commands
 ├── scripts/

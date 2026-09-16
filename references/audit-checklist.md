@@ -110,6 +110,18 @@ Used only to propose a per-stack concurrency ceiling in SKILL.md step 3 -
 propose a number from this, then confirm with the user rather than
 inventing one.
 
+## Interactive picker (fzf)
+
+```bash
+command -v fzf 2>/dev/null
+command -v brew apt apt-get dnf pacman 2>/dev/null   # which install command would even apply
+```
+
+Note whether `fzf` is already on the PATH - if not, this is the input
+SKILL.md step 3 needs to ask the install-now-or-skip question about (see
+cli-architecture.md's Mechanism 10). Note which package manager is actually
+available so the proposed install command is real rather than guessed.
+
 ## Existing similar tooling
 
 ```bash

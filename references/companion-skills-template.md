@@ -92,6 +92,11 @@ at:
   twice.
 - Every command shown to actually run uses `{{CLI_BIN}}`, never
   `{{CLI_ALIAS}}` - see the placeholder note above.
+- Never invoke `{{CLI_BIN}}` in a way that could fall through to its
+  interactive picker (cli-architecture.md's Mechanism 10, if the CLI has
+  one) - always name the target worktree/PR/review explicitly as an
+  argument, never bare. A sub-agent has no terminal for fzf or a
+  numbered-menu prompt to attach to; an ambiguous invocation just hangs.
 
 ## Orchestrator procedure (the three fan-out roles)
 

@@ -40,7 +40,11 @@ it never becomes part of the thing it builds.
 1. A worktree-isolation CLI, sized to what the project actually needs -
    full port/service isolation for a containerized multi-service app, or
    just independent worktrees + independent dependency installs for a
-   library or CLI project with no runtime service to isolate.
+   library or CLI project with no runtime service to isolate. The CLI
+   always ships with an fzf-backed interactive picker for choosing among
+   several active worktrees/reviews/PRs, falling back to a plain numbered
+   menu when fzf isn't installed - typing full commands by hand always
+   works either way.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
 3. Up to six alias-prefixed companion skills - free-text task launcher,
@@ -91,6 +95,11 @@ is the detection checklist for step 1 below.
   is solving a problem this project doesn't have. Isolation still means
   something (independent worktree, independent dependency install, no
   branch stepping on another), it just doesn't need ports.
+- **Never make an optional tool a hard dependency.** The interactive picker
+  (fzf) is detected at runtime and degrades to a plain numbered menu when
+  it isn't installed - `command -v fzf || die` (refusing to run at all
+  without it) is exactly the shape to avoid. A missing optional tool must
+  never block the CLI from working by typed commands.
 - **The shell rc file is the user's, not this skill's.** Registering the
   alias (step 4) edits `~/.zshrc`/`~/.bashrc`/the fish config - a global file
   outside the project, loaded by every terminal the user opens. Show the
@@ -222,6 +231,16 @@ Ask about, at minimum:
   default silently into reusing something gitignored for an unrelated
   reason - see cli-architecture.md's Mechanism 8. This is where every
   generated skill's PR-description and review artifacts will live.
+- **Interactive picker (fzf)** - check whether `fzf` is already on the
+  user's PATH (step 1's audit should have looked). If not, ask whether to
+  install it now - `brew install fzf` on macOS, or whatever Linux package
+  manager step 1 detected - before generating the CLI. Show the exact
+  install command and get confirmation; never install anything unprompted,
+  same as the shell-rc-file edit in step 4. Either answer is fine: the
+  generated CLI always includes the picker abstraction from
+  [references/cli-architecture.md](references/cli-architecture.md)'s
+  Mechanism 10, falling back to a plain numbered menu when fzf isn't
+  present, so nothing about the CLI's shape depends on this answer.
 - **Which companion skills to generate**, out of the six roles in
   [references/companion-skills-template.md](references/companion-skills-template.md).
   Default to all six, but two are conditional: drop `address-tickets` (and,
@@ -243,7 +262,12 @@ Ask about, at minimum:
   role is generated, and Mechanism 9 (`review`/`pr` list/show/open/path
   commands) once a reviewer role is generated - a saved-review convention
   with no way to browse it is a gap the user will hit on the very first
-  batch review.
+  batch review. Always include Mechanism 10 (the interactive picker) too -
+  the fzf-backed picker plus its plain-numbered-menu fallback, selected at
+  runtime via `command -v fzf`, never a hard dependency. If step 3
+  confirmed installing fzf now, run that confirmed install command as part
+  of this step; if the user declined, generate the CLI exactly the same
+  way - step 5's smoke test just exercises the fallback path instead.
 - If step 3 called for a new scratch directory rather than reusing an
   existing one, create it and add it to `.gitignore` with a one-line
   comment explaining its purpose, as part of this step - don't leave it to
@@ -507,6 +531,54 @@ command is enough implementation. The point is turning "where did that
 review even go" into one remembered command instead of a directory hunt,
 which matters more the longer the project's history of worktrees gets.
 
+## Mechanism 10: the interactive picker (fzf, optional)
+
+Many of the CLI's own commands take an argument naming one specific
+worktree/slot/review/PR out of several active ones - typing that identifier
+out by hand every time is friction, and running the CLI bare (no
+arguments) should do something more useful than print usage.
+
+Build a small picker abstraction inside the CLI's own UI layer, with two
+backends behind one function signature:
+
+- **If `fzf` is on the user's PATH** (checked at runtime, via
+  `command -v fzf`, on *every* call - never cached from setup time), pipe
+  the candidate list into it and return what was chosen. One prompt-text +
+  header-line convention, list-pick and multi-pick as two thin wrappers over
+  the same underlying call.
+- **If `fzf` is not on the PATH**, fall back to a plain numbered menu: print
+  each candidate with an index, `read` a number, resolve it back to the
+  candidate. Same function signature and return contract either way - every
+  call site in the CLI is written against the abstraction, never against
+  `fzf` directly, so nothing has to change if the backend changes.
+
+This makes fzf a pure enhancement, never a hard dependency -
+`command -v fzf || die` (refusing to run at all without it) is exactly the
+shape to avoid. Runtime detection (not a check baked in once at generation
+time) means a user who installs fzf a week after setup gets the nicer picker
+immediately, with no regeneration of the CLI and no re-run of this skill.
+
+**Offer to install it, once, during setup - never decide this silently.**
+If the audit (step 1) doesn't find `fzf` on the user's PATH, ask in step 3
+whether to install it now: `brew install fzf` on macOS, or whatever Linux
+package manager the audit already detected (`apt`, `dnf`, `pacman`, ...).
+This is a real system-wide install - the same class of decision as the
+shell-rc-file edit in step 4 - so show the exact command and get
+confirmation before running it; never install anything unprompted. A "no"
+is a complete, valid answer: the generated CLI ships the picker abstraction
+either way and works entirely through typed commands - nothing about the
+CLI's shape depends on whether fzf ends up installed.
+
+**Never let a generated skill's own sub-agent invocation fall through to
+this picker.** Every command a companion skill's sub-agent runs must name
+its target explicitly as an argument/flag - a sub-agent has no terminal for
+fzf, or for a numbered-menu `read`, to attach to, so an ambiguous invocation
+that falls through to the picker simply hangs forever. State this
+explicitly in every generated skill's non-negotiables (see
+companion-skills-template.md) - the same shape of risk as Mechanism 4's
+ambient-override guard: a thing that works fine interactively becomes a
+silent hang the moment it's called from a non-interactive context.
+
 ## Config
 
 One file of overridable defaults (`: ${VAR:=default}` in shell, or the
@@ -622,6 +694,11 @@ at:
   twice.
 - Every command shown to actually run uses `{{CLI_BIN}}`, never
   `{{CLI_ALIAS}}` - see the placeholder note above.
+- Never invoke `{{CLI_BIN}}` in a way that could fall through to its
+  interactive picker (cli-architecture.md's Mechanism 10, if the CLI has
+  one) - always name the target worktree/PR/review explicitly as an
+  argument, never bare. A sub-agent has no terminal for fzf or a
+  numbered-menu prompt to attach to; an ambiguous invocation just hangs.
 
 ## Orchestrator procedure (the three fan-out roles)
 
@@ -875,6 +952,18 @@ docker info --format '{{.NCPU}}' 2>/dev/null
 Used only to propose a per-stack concurrency ceiling in SKILL.md step 3 -
 propose a number from this, then confirm with the user rather than
 inventing one.
+
+## Interactive picker (fzf)
+
+```bash
+command -v fzf 2>/dev/null
+command -v brew apt apt-get dnf pacman 2>/dev/null   # which install command would even apply
+```
+
+Note whether `fzf` is already on the PATH - if not, this is the input
+SKILL.md step 3 needs to ask the install-now-or-skip question about (see
+cli-architecture.md's Mechanism 10). Note which package manager is actually
+available so the proposed install command is real rather than guessed.
 
 ## Existing similar tooling
 
