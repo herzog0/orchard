@@ -10,11 +10,11 @@ Point Orchard at a repo and it:
 
 1. **Audits** the project's actual stack — containerized or not, whatever ticket tracker and PR conventions it already has.
 2. **Proposes** an isolation strategy (ports/services if there's a runtime stack, or just independent dependency installs if there isn't) and stops for your confirmation.
-3. **Generates**, fresh and stack-appropriate — never copied from another project:
-   - a worktree-isolation CLI, with a short shell alias registered for it
+3. **Generates**, stack-appropriate for *this* project:
+   - a worktree-isolation CLI — mostly a shared, portable-bash library copied in verbatim (colors/prompts, the fzf picker, the registry+lock, worktree resolution, port arithmetic, artifact browsing, the PR command), with a short shell alias registered for it
    - a family of companion skills, alias-prefixed so they're easy to find as a group
 
-It never assumes Docker, a specific tracker, or a specific language. It builds only the machinery a given project's audit actually justifies.
+Only the genuinely project-specific pieces — config values, which files need per-worktree handling, DB seeding, a compose override — are ever written fresh; nothing about another project's *own* code or skills is copied into yours. It never assumes Docker, a specific tracker, or a specific language, and it builds only the machinery a given project's audit actually justifies.
 
 ## What you get
 
@@ -73,6 +73,14 @@ git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard-bootstrap
 │   ├── cli-architecture.md         # the 11 generic isolation mechanisms
 │   ├── companion-skills-template.md # the generated skill family's shape
 │   └── audit-checklist.md          # concrete stack-detection commands
+├── lib/                             # copied verbatim into every generated CLI
+│   ├── ui.sh                       # colors, prompts, die/warn/ask/need
+│   ├── picker.sh                   # Mechanism 10 - fzf + numbered-menu fallback
+│   ├── registry.sh                 # Mechanism 2 - registry + lockfile
+│   ├── worktree.sh                 # Mechanism 7 - resolve_worktree chain
+│   ├── slots.sh                    # Mechanism 1 - port/slot arithmetic
+│   ├── artifacts.sh                # Mechanism 9 - review/PR-description browsing
+│   └── pr.sh                       # Mechanism 6 - the copy-and-open-only PR command
 ├── scripts/
 │   └── generate_installer.py       # rebuilds orchard.sh from the files above
 ├── orchard.sh                      # generated — never hand-edit

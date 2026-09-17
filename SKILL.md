@@ -19,7 +19,12 @@ it never becomes part of the thing it builds.
    always ships with an fzf-backed interactive picker for choosing among
    several active worktrees/reviews/PRs, falling back to a plain numbered
    menu when fzf isn't installed - typing full commands by hand always
-   works either way.
+   works either way. Most of the CLI is copied verbatim from this skill's
+   own `lib/*.sh` files, not authored token-by-token per bootstrap - see
+   [references/cli-architecture.md](references/cli-architecture.md)'s
+   "Shared library vs. generated fresh" and this skill's step 4. Only the
+   genuinely project-specific pieces (config values, the file-taxonomy audit,
+   DB seeding, a compose override) are actually written fresh.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
    Every generation is tracked so it can be safely torn down later - see
@@ -53,7 +58,13 @@ is the detection checklist for step 1 below.
 - **Never copy another project's actual script or skill file content into
   this one.** Read a prior example only for its *pattern* (already distilled
   into the references/ files above) - the generated code must be written
-  fresh against what step 1 actually finds in *this* repo.
+  fresh against what step 1 actually finds in *this* repo. **This does not
+  cover this skill's own `lib/*.sh` files** (cli-architecture.md's "Shared
+  library vs. generated fresh") - those are authored once, generically, with
+  no stack awareness at all, specifically so they're copied verbatim into
+  every project rather than re-authored. Copying them isn't the violation
+  this rule exists to prevent; regenerating their content from scratch every
+  time would just be spending tokens to reproduce the same file.
 - **Never generate anything before the user has confirmed the audit findings
   and the proposed isolation strategy** (step 2). That decision is
   foundational and expensive to unwind once branches, directories, and
@@ -235,20 +246,38 @@ Ask about, at minimum:
 
 ### 4. Generate
 
-- Write the CLI (and any supporting lib files) to the location confirmed in
-  step 3, following
+- **Copy this skill's own `lib/*.sh` files verbatim** into the CLI's
+  directory first - `cp` them directly from this skill's own directory
+  (wherever it's installed - `~/.claude/skills/orchard-bootstrap/lib/`),
+  never retype or re-author their contents. Always copy `ui.sh`,
+  `picker.sh`, `registry.sh`, `worktree.sh`; copy `slots.sh` only if
+  Mechanism 1 applies (runtime services exist), `artifacts.sh` only once a
+  reviewer or launcher role is generated, `pr.sh` only once a launcher role
+  is generated. See cli-architecture.md's "Shared library vs. generated
+  fresh" - this is what keeps a bootstrap cheap: the model authors the small
+  project-specific `config.sh` and the stack-specific pieces, not hundreds
+  of lines of picker/registry/lock boilerplate every single time.
+- Write `config.sh` with this project's real values for whatever the copied
+  `lib/*.sh` files need (`MAIN_ROOT`, `REGISTRY`/`REGISTRY_LOCK`, `REG_COLS`,
+  `SERVICE_NAMES`/`SERVICE_BASES`/`SLOT_STRIDE`/`RESERVED_PORTS` if
+  `slots.sh` was copied, `ARTIFACT_DIR`, `REMOTE`) - see cli-architecture.md's
+  Config section for the exact contract each variable must satisfy.
+- Write the project-specific entrypoint and any stack-specific command
+  modules (the file-taxonomy audit, the ambient-override guard if one
+  applies, DB seeding if there's a database, the docker-compose override
+  generator if the stack is containerized) fresh, following
   [references/cli-architecture.md](references/cli-architecture.md) -
   include only the mechanisms step 2 actually called for. Always include
   Mechanism 8 (the scratch/output directory) once any launcher or reviewer
   role is generated, and Mechanism 9 (`review`/`pr` list/show/open/path
-  commands) once a reviewer role is generated - a saved-review convention
-  with no way to browse it is a gap the user will hit on the very first
-  batch review. Always include Mechanism 10 (the interactive picker) too -
-  the fzf-backed picker plus its plain-numbered-menu fallback, selected at
-  runtime via `command -v fzf`, never a hard dependency. If step 3
-  confirmed installing fzf now, run that confirmed install command as part
-  of this step; if the user declined, generate the CLI exactly the same
-  way - step 5's smoke test just exercises the fallback path instead.
+  commands, backed by the copied `artifacts.sh`) once a reviewer role is
+  generated - a saved-review convention with no way to browse it is a gap
+  the user will hit on the very first batch review. Mechanism 10 (the
+  interactive picker) is the copied `picker.sh` - nothing to author here
+  beyond making sure the entrypoint sources it. If step 3 confirmed
+  installing fzf now, run that confirmed install command as part of this
+  step; if the user declined, generate the CLI exactly the same way - step
+  5's smoke test just exercises the fallback path instead.
 - If step 3 called for a new scratch directory rather than reusing an
   existing one, create it and add it to `.gitignore` with a one-line
   comment explaining its purpose, as part of this step - don't leave it to

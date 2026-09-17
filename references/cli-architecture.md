@@ -13,6 +13,84 @@ anything gitignored that one worktree needs but `git worktree add` doesn't
 carry over, and anything destructive one worktree could do to state another
 worktree - or the main checkout - depends on.
 
+## Shared library vs. generated fresh - and why this split exists
+
+Bootstrapping a project used to mean composing the *entire* CLI as output
+tokens, mechanism by mechanism, every single time - most of which (the UI
+helpers, the picker, the registry+lock, worktree resolution, port
+arithmetic, artifact browsing, the PR command) is exactly the same logic
+regardless of what stack it's protecting. That's expensive for no reason:
+regenerating provably-generic code from scratch burns tokens on output
+nobody needed to be different this time, and risks subtle regressions a
+copy never has.
+
+So this skill ships that generic part as **literal, ready-to-use files** -
+this repo's own `lib/*.sh` - and step 4 **copies them verbatim** into every
+generated project rather than asking the model to author their contents
+again. Only the genuinely project-specific pieces are still written fresh
+per audit: `config.sh` (the small set of values below), the file-taxonomy
+audit (Mechanism 3 - literally which files, unique to every project by
+definition), the ambient-override guard (Mechanism 4, if the stack has one),
+DB seeding (Mechanism 5, if there's a database), and the docker-compose
+override generator (part of Mechanism 1, if the stack is containerized).
+This is *not* a violation of "never copy another project's actual script
+into this one" (see SKILL.md's non-negotiables) - that rule is about not
+carrying one target project's stack-specific logic into a different
+project's stack; the files below were authored once, generically, with no
+stack awareness at all, specifically so they're safe to copy everywhere.
+
+`lib/` files, and the mechanism each backs:
+
+| File | Mechanism | Ships when |
+|---|---|---|
+| `lib/ui.sh` | colors, prompts, `die`/`warn`/`ask`/`ask_yn`/`need` | always |
+| `lib/picker.sh` | 10 - the fzf/numbered-menu picker | always |
+| `lib/registry.sh` | 2 - the registry + lockfile | always |
+| `lib/worktree.sh` | 7 (core) - worktree listing + `resolve_worktree` | always |
+| `lib/slots.sh` | 1 - port/slot arithmetic, `next_slot` | only if runtime services exist |
+| `lib/artifacts.sh` | 9 - review/PR-description list/show/open/path | only if a reviewer or launcher role was generated |
+| `lib/pr.sh` | 6 - the copy-and-open-only PR command (GitHub only) | only if a launcher role was generated |
+
+Every one of these is **portable bash with no associative arrays and no
+bashism newer than bash 3.2** - stock macOS ships bash 3.2, and none of this
+should require the target user to install homebrew bash or switch to zsh
+just to run the generated CLI. Where a project's own scripts are clearly
+zsh- or Python-based instead (see "Language/shell choice" below), the
+project-specific entrypoint can still `source` these files from a zsh
+script - sourcing a portable-bash library from zsh works fine - or the
+audit may justify hand-translating just the needed pieces, called out
+explicitly as a deviation rather than assumed.
+
+**Wiring order matters**: `ui.sh` first (everything else calls `die`/`warn`),
+then `picker.sh` (needed by `worktree.sh` and `artifacts.sh`), then
+`registry.sh` (needed by `worktree.sh` and `slots.sh`), then `worktree.sh`,
+then `slots.sh`/`artifacts.sh`/`pr.sh` as applicable. `config.sh` (below)
+must be sourced before any of them, since they all read its variables.
+
+## Config
+
+`config.sh` is the one file of project-specific values every `lib/*.sh` file
+above reads - never edit a `lib/*.sh` file to hardcode a project's own
+values, they belong here instead:
+
+- `MAIN_ROOT` - the main checkout's absolute path
+- `REGISTRY`, `REGISTRY_LOCK` - absolute paths outside the git-tracked tree
+  (Mechanism 2)
+- `REG_COLS` - space-separated column names for the registry; column 2 must
+  always be `path` (registry.sh's fixed contract)
+- `SERVICE_NAMES`, `SERVICE_BASES` (parallel indexed arrays), `SLOT_STRIDE`,
+  `RESERVED_PORTS` - only if `lib/slots.sh` is shipped (Mechanism 1)
+- `ARTIFACT_DIR` - Mechanism 8's scratch directory, only if `lib/artifacts.sh`
+  and/or `lib/pr.sh` are shipped
+- `REMOTE` - the git remote PRs are opened against (defaults to `origin` in
+  `lib/pr.sh` if unset)
+- `CLI_ALIAS` - used only for the registry's header comment and log messages,
+  never for logic
+
+Every value here should say *why* it's what it is, not just what it is - a
+stride, a ceiling, a base port should all carry a one-line comment, same
+discipline as any other config file.
+
 ## Mechanism 1: the slot model (only if there are runtime services)
 
 Assign each worktree a small integer **slot** (0 reserved for the main
@@ -347,20 +425,18 @@ paths, and for the rc file, the exact line). Teardown adds a third
 category: what it found but **refused to touch**, and why, with the manual
 command to finish the job.
 
-## Config
-
-One file of overridable defaults (`: ${VAR:=default}` in shell, or the
-equivalent for whatever language the CLI is written in), each documented
-with *why* the default is what it is, not just what it is. Nothing here
-should be a bare magic number with no comment - a stride, a ceiling, a
-timeout should all say why that value.
-
 ## Language/shell choice
 
-Write the generated CLI in whatever the target project's own scripts
-already use (check for a `Makefile`, `justfile`, `scripts/` directory, CI
-config) - don't default to any particular shell or language just because a
-prior example used one. A Python project's tooling is more naturally a
-Python script; a Node project's more naturally a Node script or shell script
-calling `npm`/`yarn`; a Go project might prefer a small Go binary. Match the
-ecosystem so the team can read and extend it without switching languages.
+Write the generated CLI's project-specific entrypoint in whatever the target
+project's own scripts already use (check for a `Makefile`, `justfile`,
+`scripts/` directory, CI config) - don't default to any particular shell or
+language just because a prior example used one. A Python project's tooling
+is more naturally a Python script; a Node project's more naturally a Node
+script or shell script calling `npm`/`yarn`; a Go project might prefer a
+small Go binary. Match the ecosystem so the team can read and extend it
+without switching languages.
+
+This is about the entrypoint and the stack-specific pieces, not the shared
+`lib/*.sh` files above, which are portable bash and get sourced (or, for a
+non-bash entrypoint, hand-translated as an explicit, called-out deviation)
+regardless of what the rest of the CLI is written in.

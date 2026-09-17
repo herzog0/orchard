@@ -23,6 +23,13 @@ FILES = [
     "references/cli-architecture.md",
     "references/companion-skills-template.md",
     "references/audit-checklist.md",
+    "lib/ui.sh",
+    "lib/picker.sh",
+    "lib/registry.sh",
+    "lib/worktree.sh",
+    "lib/slots.sh",
+    "lib/artifacts.sh",
+    "lib/pr.sh",
 ]
 
 HEADER = r"""#!/usr/bin/env bash

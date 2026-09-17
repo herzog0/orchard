@@ -270,7 +270,12 @@ it never becomes part of the thing it builds.
    always ships with an fzf-backed interactive picker for choosing among
    several active worktrees/reviews/PRs, falling back to a plain numbered
    menu when fzf isn't installed - typing full commands by hand always
-   works either way.
+   works either way. Most of the CLI is copied verbatim from this skill's
+   own `lib/*.sh` files, not authored token-by-token per bootstrap - see
+   [references/cli-architecture.md](references/cli-architecture.md)'s
+   "Shared library vs. generated fresh" and this skill's step 4. Only the
+   genuinely project-specific pieces (config values, the file-taxonomy audit,
+   DB seeding, a compose override) are actually written fresh.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
    Every generation is tracked so it can be safely torn down later - see
@@ -304,7 +309,13 @@ is the detection checklist for step 1 below.
 - **Never copy another project's actual script or skill file content into
   this one.** Read a prior example only for its *pattern* (already distilled
   into the references/ files above) - the generated code must be written
-  fresh against what step 1 actually finds in *this* repo.
+  fresh against what step 1 actually finds in *this* repo. **This does not
+  cover this skill's own `lib/*.sh` files** (cli-architecture.md's "Shared
+  library vs. generated fresh") - those are authored once, generically, with
+  no stack awareness at all, specifically so they're copied verbatim into
+  every project rather than re-authored. Copying them isn't the violation
+  this rule exists to prevent; regenerating their content from scratch every
+  time would just be spending tokens to reproduce the same file.
 - **Never generate anything before the user has confirmed the audit findings
   and the proposed isolation strategy** (step 2). That decision is
   foundational and expensive to unwind once branches, directories, and
@@ -486,20 +497,38 @@ Ask about, at minimum:
 
 ### 4. Generate
 
-- Write the CLI (and any supporting lib files) to the location confirmed in
-  step 3, following
+- **Copy this skill's own `lib/*.sh` files verbatim** into the CLI's
+  directory first - `cp` them directly from this skill's own directory
+  (wherever it's installed - `~/.claude/skills/orchard-bootstrap/lib/`),
+  never retype or re-author their contents. Always copy `ui.sh`,
+  `picker.sh`, `registry.sh`, `worktree.sh`; copy `slots.sh` only if
+  Mechanism 1 applies (runtime services exist), `artifacts.sh` only once a
+  reviewer or launcher role is generated, `pr.sh` only once a launcher role
+  is generated. See cli-architecture.md's "Shared library vs. generated
+  fresh" - this is what keeps a bootstrap cheap: the model authors the small
+  project-specific `config.sh` and the stack-specific pieces, not hundreds
+  of lines of picker/registry/lock boilerplate every single time.
+- Write `config.sh` with this project's real values for whatever the copied
+  `lib/*.sh` files need (`MAIN_ROOT`, `REGISTRY`/`REGISTRY_LOCK`, `REG_COLS`,
+  `SERVICE_NAMES`/`SERVICE_BASES`/`SLOT_STRIDE`/`RESERVED_PORTS` if
+  `slots.sh` was copied, `ARTIFACT_DIR`, `REMOTE`) - see cli-architecture.md's
+  Config section for the exact contract each variable must satisfy.
+- Write the project-specific entrypoint and any stack-specific command
+  modules (the file-taxonomy audit, the ambient-override guard if one
+  applies, DB seeding if there's a database, the docker-compose override
+  generator if the stack is containerized) fresh, following
   [references/cli-architecture.md](references/cli-architecture.md) -
   include only the mechanisms step 2 actually called for. Always include
   Mechanism 8 (the scratch/output directory) once any launcher or reviewer
   role is generated, and Mechanism 9 (`review`/`pr` list/show/open/path
-  commands) once a reviewer role is generated - a saved-review convention
-  with no way to browse it is a gap the user will hit on the very first
-  batch review. Always include Mechanism 10 (the interactive picker) too -
-  the fzf-backed picker plus its plain-numbered-menu fallback, selected at
-  runtime via `command -v fzf`, never a hard dependency. If step 3
-  confirmed installing fzf now, run that confirmed install command as part
-  of this step; if the user declined, generate the CLI exactly the same
-  way - step 5's smoke test just exercises the fallback path instead.
+  commands, backed by the copied `artifacts.sh`) once a reviewer role is
+  generated - a saved-review convention with no way to browse it is a gap
+  the user will hit on the very first batch review. Mechanism 10 (the
+  interactive picker) is the copied `picker.sh` - nothing to author here
+  beyond making sure the entrypoint sources it. If step 3 confirmed
+  installing fzf now, run that confirmed install command as part of this
+  step; if the user declined, generate the CLI exactly the same way - step
+  5's smoke test just exercises the fallback path instead.
 - If step 3 called for a new scratch directory rather than reusing an
   existing one, create it and add it to `.gitignore` with a one-line
   comment explaining its purpose, as part of this step - don't leave it to
@@ -631,6 +660,84 @@ anything with a port, anything with a shared name a process registers under,
 anything gitignored that one worktree needs but `git worktree add` doesn't
 carry over, and anything destructive one worktree could do to state another
 worktree - or the main checkout - depends on.
+
+## Shared library vs. generated fresh - and why this split exists
+
+Bootstrapping a project used to mean composing the *entire* CLI as output
+tokens, mechanism by mechanism, every single time - most of which (the UI
+helpers, the picker, the registry+lock, worktree resolution, port
+arithmetic, artifact browsing, the PR command) is exactly the same logic
+regardless of what stack it's protecting. That's expensive for no reason:
+regenerating provably-generic code from scratch burns tokens on output
+nobody needed to be different this time, and risks subtle regressions a
+copy never has.
+
+So this skill ships that generic part as **literal, ready-to-use files** -
+this repo's own `lib/*.sh` - and step 4 **copies them verbatim** into every
+generated project rather than asking the model to author their contents
+again. Only the genuinely project-specific pieces are still written fresh
+per audit: `config.sh` (the small set of values below), the file-taxonomy
+audit (Mechanism 3 - literally which files, unique to every project by
+definition), the ambient-override guard (Mechanism 4, if the stack has one),
+DB seeding (Mechanism 5, if there's a database), and the docker-compose
+override generator (part of Mechanism 1, if the stack is containerized).
+This is *not* a violation of "never copy another project's actual script
+into this one" (see SKILL.md's non-negotiables) - that rule is about not
+carrying one target project's stack-specific logic into a different
+project's stack; the files below were authored once, generically, with no
+stack awareness at all, specifically so they're safe to copy everywhere.
+
+`lib/` files, and the mechanism each backs:
+
+| File | Mechanism | Ships when |
+|---|---|---|
+| `lib/ui.sh` | colors, prompts, `die`/`warn`/`ask`/`ask_yn`/`need` | always |
+| `lib/picker.sh` | 10 - the fzf/numbered-menu picker | always |
+| `lib/registry.sh` | 2 - the registry + lockfile | always |
+| `lib/worktree.sh` | 7 (core) - worktree listing + `resolve_worktree` | always |
+| `lib/slots.sh` | 1 - port/slot arithmetic, `next_slot` | only if runtime services exist |
+| `lib/artifacts.sh` | 9 - review/PR-description list/show/open/path | only if a reviewer or launcher role was generated |
+| `lib/pr.sh` | 6 - the copy-and-open-only PR command (GitHub only) | only if a launcher role was generated |
+
+Every one of these is **portable bash with no associative arrays and no
+bashism newer than bash 3.2** - stock macOS ships bash 3.2, and none of this
+should require the target user to install homebrew bash or switch to zsh
+just to run the generated CLI. Where a project's own scripts are clearly
+zsh- or Python-based instead (see "Language/shell choice" below), the
+project-specific entrypoint can still `source` these files from a zsh
+script - sourcing a portable-bash library from zsh works fine - or the
+audit may justify hand-translating just the needed pieces, called out
+explicitly as a deviation rather than assumed.
+
+**Wiring order matters**: `ui.sh` first (everything else calls `die`/`warn`),
+then `picker.sh` (needed by `worktree.sh` and `artifacts.sh`), then
+`registry.sh` (needed by `worktree.sh` and `slots.sh`), then `worktree.sh`,
+then `slots.sh`/`artifacts.sh`/`pr.sh` as applicable. `config.sh` (below)
+must be sourced before any of them, since they all read its variables.
+
+## Config
+
+`config.sh` is the one file of project-specific values every `lib/*.sh` file
+above reads - never edit a `lib/*.sh` file to hardcode a project's own
+values, they belong here instead:
+
+- `MAIN_ROOT` - the main checkout's absolute path
+- `REGISTRY`, `REGISTRY_LOCK` - absolute paths outside the git-tracked tree
+  (Mechanism 2)
+- `REG_COLS` - space-separated column names for the registry; column 2 must
+  always be `path` (registry.sh's fixed contract)
+- `SERVICE_NAMES`, `SERVICE_BASES` (parallel indexed arrays), `SLOT_STRIDE`,
+  `RESERVED_PORTS` - only if `lib/slots.sh` is shipped (Mechanism 1)
+- `ARTIFACT_DIR` - Mechanism 8's scratch directory, only if `lib/artifacts.sh`
+  and/or `lib/pr.sh` are shipped
+- `REMOTE` - the git remote PRs are opened against (defaults to `origin` in
+  `lib/pr.sh` if unset)
+- `CLI_ALIAS` - used only for the registry's header comment and log messages,
+  never for logic
+
+Every value here should say *why* it's what it is, not just what it is - a
+stride, a ceiling, a base port should all carry a one-line comment, same
+discipline as any other config file.
 
 ## Mechanism 1: the slot model (only if there are runtime services)
 
@@ -966,23 +1073,21 @@ paths, and for the rc file, the exact line). Teardown adds a third
 category: what it found but **refused to touch**, and why, with the manual
 command to finish the job.
 
-## Config
-
-One file of overridable defaults (`: ${VAR:=default}` in shell, or the
-equivalent for whatever language the CLI is written in), each documented
-with *why* the default is what it is, not just what it is. Nothing here
-should be a bare magic number with no comment - a stride, a ceiling, a
-timeout should all say why that value.
-
 ## Language/shell choice
 
-Write the generated CLI in whatever the target project's own scripts
-already use (check for a `Makefile`, `justfile`, `scripts/` directory, CI
-config) - don't default to any particular shell or language just because a
-prior example used one. A Python project's tooling is more naturally a
-Python script; a Node project's more naturally a Node script or shell script
-calling `npm`/`yarn`; a Go project might prefer a small Go binary. Match the
-ecosystem so the team can read and extend it without switching languages.
+Write the generated CLI's project-specific entrypoint in whatever the target
+project's own scripts already use (check for a `Makefile`, `justfile`,
+`scripts/` directory, CI config) - don't default to any particular shell or
+language just because a prior example used one. A Python project's tooling
+is more naturally a Python script; a Node project's more naturally a Node
+script or shell script calling `npm`/`yarn`; a Go project might prefer a
+small Go binary. Match the ecosystem so the team can read and extend it
+without switching languages.
+
+This is about the entrypoint and the stack-specific pieces, not the shared
+`lib/*.sh` files above, which are portable bash and get sourced (or, for a
+non-bash entrypoint, hand-translated as an explicit, called-out deviation)
+regardless of what the rest of the CLI is written in.
 ORCHARD_EOF
 
 mkdir -p "$(dirname "$SKILL_DIR/references/companion-skills-template.md")"
@@ -1361,6 +1466,612 @@ ls ~/.claude/skills 2>/dev/null
 
 If something already covers this ground, surface it and ask whether to
 extend rather than duplicate - per SKILL.md step 0.
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/ui.sh")"
+cat > "$SKILL_DIR/lib/ui.sh" <<'ORCHARD_EOF'
+# Generic UI helpers - colors, prompts, dependency checks.
+#
+# Portable bash: no associative arrays, no bashisms newer than bash 3.2, since
+# stock macOS bash is 3.2 and this must work there without requiring homebrew
+# bash or zsh. Copied verbatim into every generated CLI - never hand-authored
+# or edited per project; anything project-specific is a value in config.sh,
+# never a change to this file.
+#
+# CLI_YES=1 (set by a --yes flag the generated CLI's own arg parsing owns)
+# makes every yes/no prompt answer YES and every free-text prompt take its
+# default - a caller that passed --yes has already decided, including for
+# destructive prompts whose default is deliberately "n". A choice with no
+# safe default (which worktree, which dump) still refuses to guess even
+# under --yes - see ask()/ask_yn() below and picker.sh's own refusal.
+
+# shellcheck disable=SC2034  # C_CYA is for consumers of this file (e.g. highlighting a slot number), not used here
+if [ -t 1 ]; then
+  C_RESET=$'\033[0m'; C_B=$'\033[1m'; C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_CYA=$'\033[36m'
+else
+  C_RESET=''; C_B=''; C_DIM=''; C_RED=''; C_GRN=''; C_YEL=''; C_CYA=''
+fi
+
+die()  { printf '%s%s✗%s %s\n' "$C_RED" "$C_B" "$C_RESET" "$*" >&2; exit 1; }
+warn() { printf '%s!%s %s\n' "$C_YEL" "$C_RESET" "$*" >&2; }
+ok()   { printf '%s✓%s %s\n' "$C_GRN" "$C_RESET" "$*"; }
+info() { printf '  %s\n' "$*"; }
+dim()  { printf '%s%s%s\n' "$C_DIM" "$*" "$C_RESET"; }
+step() { printf '\n%s▶ %s%s\n' "$C_B" "$*" "$C_RESET"; }
+hr()   { printf '%s%s%s\n' "$C_DIM" "--------------------------------------------------------------------------" "$C_RESET"; }
+
+# Yes/no, default in $2 ("y" or "n", default "n").
+ask_yn() {  # <prompt> [default y|n]
+  local prompt="$1" def="${2:-n}" reply hint
+  [ "$def" = y ] && hint="[Y/n]" || hint="[y/N]"
+  if [ "${CLI_YES:-0}" = 1 ]; then
+    dim "  $prompt $hint y (--yes)"
+    return 0
+  fi
+  printf '%s %s ' "$prompt" "$hint"
+  read -r reply
+  [ -z "$reply" ] && reply="$def"
+  case "$reply" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Free-text prompt with a default. Empty input takes the default. Under
+# CLI_YES with no default there is nothing safe to assume - the caller must
+# supply the value as a flag instead of reaching this prompt at all.
+ask() {  # <varname> <prompt> [default]
+  local __var="$1" prompt="$2" def="$3" reply
+  if [ "${CLI_YES:-0}" = 1 ]; then
+    [ -n "$def" ] || die "--yes cannot answer '$prompt' - pass it as a flag."
+    dim "  $prompt [$def] (--yes)"
+    eval "$__var=\"\$def\""
+    return 0
+  fi
+  if [ -n "$def" ]; then
+    printf '%s [%s]: ' "$prompt" "$def"
+  else
+    printf '%s: ' "$prompt"
+  fi
+  read -r reply
+  [ -z "$reply" ] && reply="$def"
+  eval "$__var=\"\$reply\""
+}
+
+pause() {
+  [ "${CLI_YES:-0}" = 1 ] && return 0
+  printf '\n%sPress Enter to continue...%s' "$C_DIM" "$C_RESET"
+  read -r _unused
+}
+
+need() {  # <command> [why]
+  command -v "$1" >/dev/null 2>&1 || die "$1 not found${2:+ ($2)}"
+}
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/picker.sh")"
+cat > "$SKILL_DIR/lib/picker.sh" <<'ORCHARD_EOF'
+# Generic interactive picker (Mechanism 10) - fzf if available, checked at
+# runtime on every call (never cached from setup time), else a plain numbered
+# menu. fzf is a pure enhancement here, never a hard dependency: nothing in
+# this file dies if fzf is missing.
+#
+# Copied verbatim into every generated CLI. Depends on ui.sh (die/warn),
+# which must be sourced first.
+#
+# Public API (mirrors boostctl's own, so generated code reads familiarly):
+#   pick_one <prompt> [extra fzf args...]          -> one line, or __QUIT__
+#   pick_one_or_skip <prompt> [extra fzf args...]  -> line, __SKIP__, or __QUIT__
+#   pick_many <prompt> [extra fzf args...]         -> one line per pick, or __QUIT__
+# All three read candidate lines from stdin. "extra fzf args" (e.g.
+# --with-nth=2.. --delimiter=$'\t' to hide a leading key field) apply only
+# when fzf backs the pick - the numbered-menu fallback shows the raw line,
+# hidden fields included, since it has no column-hiding of its own.
+
+SKIP_LINE='<< skip this step'
+
+_pick_fzf() {  # <mode> <skippable> <prompt> [extra fzf args...]
+  local mode="$1" skippable="$2" prompt="$3" lines choice extra_header
+  shift 3
+  lines="$(cat)"
+  local -a fzf_opts=(--prompt="$prompt" --height=40% --reverse)
+  if [ "$mode" = many ]; then
+    extra_header='Tab: mark   Enter: confirm   Esc: cancel'
+    fzf_opts+=(--multi)
+  else
+    extra_header='Enter: choose   Esc: cancel'
+  fi
+  fzf_opts+=(--header="$extra_header")
+  choice="$(
+    { printf '%s\n' "$lines"
+      [ "$skippable" = 1 ] && printf '%s\n' "$SKIP_LINE"
+    } | fzf "${fzf_opts[@]}" "$@"
+  )"
+  if [ -z "$choice" ]; then printf '__QUIT__\n'; return 0; fi
+  if [ "$mode" != many ] && [ "$choice" = "$SKIP_LINE" ]; then
+    printf '__SKIP__\n'; return 0
+  fi
+  printf '%s\n' "$choice"
+}
+
+_pick_fallback() {  # <mode> <skippable> <prompt>
+  # Candidate lines come in on this function's own stdin (the pipe every
+  # caller feeds it), which reaches EOF once the while-loop below drains it -
+  # so the user's actual choice, read afterward, must come from the
+  # controlling terminal instead, or it would read nothing at all.
+  local mode="$1" skippable="$2" prompt="$3" i=0 line reply n out
+  local -a items=()
+  printf '%s\n' "$prompt" >&2
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    i=$((i + 1))
+    items[i]="$line"
+    printf '  %d) %s\n' "$i" "$line" >&2
+  done
+  [ "$skippable" = 1 ] && printf '  s) skip this step\n' >&2
+  printf '  q) cancel\n' >&2
+  if [ "$mode" = many ]; then
+    printf 'Numbers (space or comma separated): ' >&2
+  else
+    printf 'Number: ' >&2
+  fi
+  read -r reply </dev/tty
+  case "$reply" in
+    ''|q|Q) printf '__QUIT__\n'; return 0 ;;
+    s|S)
+      if [ "$skippable" = 1 ]; then printf '__SKIP__\n'; else printf '__QUIT__\n'; fi
+      return 0
+      ;;
+  esac
+  out=''
+  for n in $(printf '%s' "$reply" | tr ',' ' '); do
+    case "$n" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    if [ "$n" -ge 1 ] && [ "$n" -le "$i" ]; then
+      out="${out}${items[n]}
+"
+    fi
+  done
+  if [ -z "$out" ]; then printf '__QUIT__\n'; return 0; fi
+  printf '%s' "$out"
+}
+
+_pick() {  # <mode:one|many> <skippable:0|1> <prompt> [extra fzf args...]
+  local mode="$1" skippable="$2" prompt="$3"
+  shift 3
+  local lines
+  lines="$(cat)"
+  if [ "${CLI_YES:-0}" = 1 ]; then
+    die "--yes cannot answer '$prompt' - pass the choice as a flag."
+  fi
+  if command -v fzf >/dev/null 2>&1; then
+    printf '%s\n' "$lines" | _pick_fzf "$mode" "$skippable" "$prompt" "$@"
+  else
+    printf '%s\n' "$lines" | _pick_fallback "$mode" "$skippable" "$prompt"
+  fi
+}
+
+pick_one()         { _pick one  0 "$@"; }
+pick_one_or_skip() { _pick one  1 "$@"; }
+pick_many()        { _pick many 0 "$@"; }
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/registry.sh")"
+cat > "$SKILL_DIR/lib/registry.sh" <<'ORCHARD_EOF'
+# Generic worktree registry (Mechanism 2): one tab-separated row per
+# worktree, in a file outside the git-tracked tree - never something to merge
+# or conflict over. Copied verbatim into every generated CLI; the only
+# project-specific input is REG_COLS (set by config.sh), a space-separated
+# list of column names, e.g. "slot path branch project web db redis created".
+#
+# Fixed contract every config.sh must follow: column 2 of REG_COLS is always
+# "path" - registry_put()/registry_delete_path() key on it by position rather
+# than re-resolving the column name on every call.
+#
+# Depends on ui.sh (die), which must be sourced first. Also expects REGISTRY
+# and REGISTRY_LOCK (both set by config.sh) to be absolute paths outside the
+# project's git tree.
+
+registry_init() {
+  [ -f "$REGISTRY" ] && return 0
+  mkdir -p "$(dirname "$REGISTRY")"
+  {
+    printf '# %s registry\n#\n' "${CLI_ALIAS:-cli}"
+    printf '# %s\n' "$REG_COLS"
+  } > "$REGISTRY"
+}
+
+# mkdir is atomic, so two concurrent runs can never claim the same allocation.
+registry_lock() {
+  local tries=0
+  until mkdir "$REGISTRY_LOCK" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 50 ]; then
+      die "registry is locked by another run.
+If nothing else is running, remove: $REGISTRY_LOCK"
+    fi
+    sleep 0.1
+  done
+}
+registry_unlock() { rmdir "$REGISTRY_LOCK" 2>/dev/null || true; }
+
+registry_rows() {
+  grep -v '^#' "$REGISTRY" 2>/dev/null | grep -v '^[[:space:]]*$'
+}
+
+_reg_col_index() {  # <name> -> 1-based index into REG_COLS, or empty
+  local name="$1" i=0 c
+  for c in $REG_COLS; do
+    i=$((i + 1))
+    if [ "$c" = "$name" ]; then printf '%s' "$i"; return 0; fi
+  done
+}
+
+# Print the row matching <col-name>=<value>, or nothing.
+registry_row_for() {  # <col-name> <value>
+  local idx
+  idx="$(_reg_col_index "$1")"
+  [ -n "$idx" ] || return 1
+  registry_rows | awk -F'\t' -v i="$idx" -v v="$2" '$i == v { print; exit }'
+}
+
+registry_row_for_path() {
+  local p
+  p="$(cd "$1" 2>/dev/null && pwd -P)" || p="$1"
+  registry_row_for path "$p"
+}
+
+reg_field() {  # <row> <col-name>
+  local idx
+  idx="$(_reg_col_index "$2")"
+  [ -n "$idx" ] || return 1
+  printf '%s' "$1" | awk -F'\t' -v i="$idx" '{print $i}'
+}
+
+registry_slots() { registry_rows | awk -F'\t' '{print $1}' | sort -n; }
+
+# Replace (matched by path, REG_COLS' 2nd column) or append a row. Caller
+# holds the lock. Pass exactly as many values as REG_COLS has columns, in
+# that order - REG_COLS is config.sh's single source of truth for both the
+# header and every registry_put call site.
+registry_put() {
+  local wtpath="$2" tmp joined
+  tmp="$(mktemp)"
+  awk -F'\t' -v p="$wtpath" 'BEGIN{OFS="\t"} /^#/ {print; next} $2 != p {print}' \
+    "$REGISTRY" > "$tmp"
+  joined="$(IFS=$'\t'; printf '%s' "$*")"
+  printf '%s\n' "$joined" >> "$tmp"
+  {
+    grep '^#' "$tmp"
+    grep -v '^#' "$tmp" | sort -t "$(printf '\t')" -k1,1
+  } > "$REGISTRY"
+  rm -f "$tmp"
+}
+
+registry_delete_path() {  # <path>
+  local wtpath="$1" tmp
+  tmp="$(mktemp)"
+  awk -F'\t' -v p="$wtpath" '/^#/ {print; next} $2 != p {print}' "$REGISTRY" > "$tmp"
+  mv "$tmp" "$REGISTRY"
+}
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/worktree.sh")"
+cat > "$SKILL_DIR/lib/worktree.sh" <<'ORCHARD_EOF'
+# Generic git-worktree helpers (Mechanism 7's core) - locating worktrees and
+# resolving which one a command should act on. Stack-agnostic: nothing here
+# assumes Docker, a database, or any runtime service.
+#
+# Copied verbatim into every generated CLI. Depends on ui.sh (die) and
+# registry.sh (registry_row_for, reg_field) plus picker.sh (pick_one), all of
+# which must be sourced first. Expects MAIN_ROOT (set by config.sh) to be the
+# main checkout's absolute path.
+
+worktree_of() {  # [path=$PWD] -> its worktree top-level, or empty
+  git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null
+}
+
+branch_of() {  # <worktree>
+  git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null
+}
+
+is_main_worktree() {  # <worktree> -> 0 if it is MAIN_ROOT
+  local wt
+  wt="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  [ "$wt" = "$MAIN_ROOT" ]
+}
+
+# Every worktree git knows about for MAIN_ROOT, one absolute path per line.
+git_worktrees() {
+  git -C "$MAIN_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}'
+}
+
+# One line per worktree for a picker: the path as a hidden first field (tab-
+# delimited), then a display column. Deliberately asks nothing of Docker or
+# any runtime service, so it stays instant - a project's own status/info
+# command is where live container state belongs.
+_worktree_picker_lines() {
+  local wt row slot
+  for wt in $(git_worktrees); do
+    [ -d "$wt" ] || continue
+    slot='-'
+    if row="$(registry_row_for_path "$wt")" && [ -n "$row" ]; then
+      slot="$(reg_field "$row" slot 2>/dev/null)"
+      [ -n "$slot" ] || slot='-'
+    fi
+    printf '%s\tslot %-4s %-38s %s\n' "$wt" "$slot" "$(branch_of "$wt")" "$(basename "$wt")"
+  done
+}
+
+# fzf/numbered-menu pick over every worktree. Prints a path, or __QUIT__.
+worktree_picker() {  # [prompt]
+  local prompt="${1:-worktree> }" c
+  c="$(_worktree_picker_lines | pick_one "$prompt" --with-nth=2.. --delimiter=$'\t')"
+  case "$c" in
+    __QUIT__|__SKIP__|'') printf '__QUIT__\n' ;;
+    *) printf '%s\n' "${c%%$'\t'*}" ;;
+  esac
+}
+
+# Resolve which worktree a command should act on, in this order:
+#   1. an explicit path argument
+#   2. the worktree containing $PWD
+#   3. the interactive picker (Mechanism 10)
+# Prints the path, or __QUIT__. Every generated lifecycle/review/pr command
+# that targets one worktree among several must resolve it through this
+# function rather than requiring the path as a hard argument - see
+# cli-architecture.md's Mechanisms 7, 9 and 10.
+resolve_worktree() {  # [explicit-path]
+  local explicit="$1" wt
+  if [ -n "$explicit" ]; then
+    [ -d "$explicit" ] || die "no such directory: $explicit"
+    (cd "$explicit" && pwd -P)
+    return 0
+  fi
+  wt="$(worktree_of "$PWD")"
+  if [ -n "$wt" ]; then
+    printf '%s\n' "$wt"
+    return 0
+  fi
+  worktree_picker 'worktree> '
+}
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/slots.sh")"
+cat > "$SKILL_DIR/lib/slots.sh" <<'ORCHARD_EOF'
+# Port/slot arithmetic (Mechanism 1) - only shipped when the project has
+# runtime services to isolate; skip this whole file for a project with
+# nothing to bind a port to (a library, a CLI tool with no server/db).
+#
+# Deliberately plain indexed arrays, not associative ones: stock macOS bash
+# (3.2) has no associative-array support, and this must work there without
+# requiring homebrew bash or zsh. config.sh sets, in parallel:
+#   SERVICE_NAMES=(web db redis ...)
+#   SERVICE_BASES=(8000 5432 6379 ...)     # same index as SERVICE_NAMES
+#   SLOT_STRIDE=10
+#   RESERVED_PORTS="16000"                 # space-separated, never handed out
+#
+# Depends on ui.sh (warn) and registry.sh (registry_row_for), both of which
+# must be sourced first.
+
+port_base_for() {  # <service> -> base port, or empty if unknown
+  local i
+  for i in "${!SERVICE_NAMES[@]}"; do
+    if [ "${SERVICE_NAMES[$i]}" = "$1" ]; then
+      printf '%s' "${SERVICE_BASES[$i]}"
+      return 0
+    fi
+  done
+}
+
+port_for() {  # <slot> <service>
+  local base
+  base="$(port_base_for "$2")"
+  [ -n "$base" ] || return 1
+  printf '%s' "$((base + SLOT_STRIDE * $1))"
+}
+
+port_busy() {  # <port> -> 0 if something is already listening
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+port_reserved() {  # <port> -> 0 if it's in RESERVED_PORTS
+  local p
+  for p in ${RESERVED_PORTS:-}; do
+    [ "$p" = "$1" ] && return 0
+  done
+  return 1
+}
+
+# Lowest slot >= <start> that is neither registered nor blocked by a port
+# already in use for any service in SERVICE_NAMES. Slot 0 is reserved for the
+# main checkout and is never handed out here.
+next_slot() {  # [start=1]
+  # each assignment on its own line: shells expand the whole `local` line
+  # before running it, so a later word cannot see an earlier one
+  local start="${1:-1}"
+  local slot="$start" svc p busy
+  while [ "$slot" -lt 200 ]; do
+    if [ -n "$(registry_row_for slot "$slot")" ]; then
+      slot=$((slot + 1))
+      continue
+    fi
+    busy=''
+    for svc in "${SERVICE_NAMES[@]}"; do
+      p="$(port_for "$slot" "$svc")"
+      if port_reserved "$p"; then busy="$p (reserved)"; break; fi
+      if port_busy "$p"; then busy="$p (in use)"; break; fi
+    done
+    if [ -n "$busy" ]; then
+      warn "slot $slot skipped - port $busy"
+      slot=$((slot + 1))
+      continue
+    fi
+    printf '%s' "$slot"
+    return 0
+  done
+  return 1
+}
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/artifacts.sh")"
+cat > "$SKILL_DIR/lib/artifacts.sh" <<'ORCHARD_EOF'
+# Generic review/PR-description artifact browsing (Mechanism 9) - list/show/
+# open/path over one directory of files (either ARTIFACT_DIR/reviews or
+# ARTIFACT_DIR/pr_descriptions - callers pass the directory explicitly, this
+# file has no opinion on which). A <ref> is a filename, a partial/fuzzy
+# substring match, or empty - empty always falls back to the interactive
+# picker (Mechanism 10) rather than requiring the argument.
+#
+# Only shipped when a reviewer role (or a launcher role, for the PR-
+# description side) was generated - see cli-architecture.md's Mechanism 8/9.
+# Depends on ui.sh (warn) and picker.sh (pick_one), both of which must be
+# sourced first.
+
+_artifact_list() {  # <dir> -> "<path>\t<display>" lines, newest first
+  local dir="$1" f
+  [ -d "$dir" ] || return 0
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    printf '%s\t%s (%s)\n' "$f" "$(basename "$f")" "$(date -r "$f" '+%Y-%m-%d %H:%M' 2>/dev/null)"
+  done | sort -t "$(printf '\t')" -k2 -r
+}
+
+# Resolve <ref> (a filename, a partial/fuzzy substring, or empty) to exactly
+# one path in <dir>. Prints the path, or nothing (with a warning) on no
+# match, ambiguous match, or a cancelled picker.
+_artifact_resolve() {  # <dir> <ref>
+  local dir="$1" ref="$2" matches n c
+  if [ ! -d "$dir" ]; then
+    warn "no such directory: $dir"
+    return 1
+  fi
+  if [ -z "$ref" ]; then
+    c="$(_artifact_list "$dir" | pick_one 'pick> ' --with-nth=2.. --delimiter=$'\t')"
+    case "$c" in
+      __QUIT__|__SKIP__|'') return 1 ;;
+      *) printf '%s' "${c%%$'\t'*}"; return 0 ;;
+    esac
+  fi
+  matches="$(_artifact_list "$dir" | awk -F'\t' -v r="$ref" '$0 ~ r || $1 ~ r {print $1}')"
+  n=0
+  [ -n "$matches" ] && n="$(printf '%s\n' "$matches" | grep -c .)"
+  if [ "$n" -eq 0 ]; then
+    warn "no artifact matching '$ref' in $dir"
+    return 1
+  fi
+  if [ "$n" -gt 1 ]; then
+    printf '%s\n' "$matches" | sed 's/^/  /' >&2
+    warn "'$ref' matches more than one file - be more specific"
+    return 1
+  fi
+  printf '%s' "$matches"
+}
+
+artifact_list_cmd() {  # <dir>
+  _artifact_list "$1" | awk -F'\t' '{print $2}'
+}
+
+artifact_show_cmd() {  # <dir> [ref]
+  local f
+  f="$(_artifact_resolve "$1" "$2")" || return 1
+  cat "$f"
+}
+
+artifact_open_cmd() {  # <dir> [ref]
+  local f
+  f="$(_artifact_resolve "$1" "$2")" || return 1
+  if [ -n "${EDITOR:-}" ]; then
+    "$EDITOR" "$f"
+  else
+    case "$(uname -s)" in
+      Darwin) open "$f" ;;
+      *) xdg-open "$f" 2>/dev/null || cat "$f" ;;
+    esac
+  fi
+}
+
+artifact_path_cmd() {  # <dir> [ref]
+  _artifact_resolve "$1" "$2"
+}
+ORCHARD_EOF
+
+mkdir -p "$(dirname "$SKILL_DIR/lib/pr.sh")"
+cat > "$SKILL_DIR/lib/pr.sh" <<'ORCHARD_EOF'
+# Generic PR command (Mechanism 6) - finds a worktree's PR-description file,
+# gets it in front of the user, makes sure the branch is pushed (asking
+# first, never silently), and opens a compare/new-PR URL with the title
+# pre-filled. Never calls the "actually create the PR" API/CLI itself -
+# copy-and-open only.
+#
+# Only shipped alongside a launcher role (free-ask/address-tickets), since
+# those are what write the PR-description artifact this reads. Depends on
+# ui.sh (info/warn/die/ask_yn) and artifacts.sh (_artifact_resolve), both of
+# which must be sourced first. Expects MAIN_ROOT and REMOTE (set by
+# config.sh) - REMOTE defaults to "origin" if config.sh doesn't set it.
+
+# github.com only, since the compare-URL shape below is GitHub's. A project
+# on a different forge needs its own version of this file - say so rather
+# than silently building a wrong URL.
+_repo_slug_from_remote() {  # -> owner/repo, or empty
+  local remote="${REMOTE:-origin}" url
+  url="$(git -C "$MAIN_ROOT" remote get-url "$remote" 2>/dev/null)" || return 1
+  case "$url" in
+    git@github.com:*) printf '%s' "${url#git@github.com:}" | sed 's/\.git$//' ;;
+    https://github.com/*) printf '%s' "${url#https://github.com/}" | sed 's/\.git$//' ;;
+    *) return 1 ;;
+  esac
+}
+
+_open_url() {  # <url>
+  case "$(uname -s)" in
+    Darwin) open "$1" ;;
+    *) xdg-open "$1" >/dev/null 2>&1 || info "open manually: $1" ;;
+  esac
+}
+
+# <worktree> <pr-description-dir> [base-branch=main]
+pr_open_cmd() {
+  local wt="$1" pr_dir="$2" base="${3:-main}" branch slug f url
+
+  branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ -n "$branch" ] || die "could not determine the branch checked out in $wt"
+
+  slug="$(_repo_slug_from_remote)" \
+    || die "could not resolve a github.com owner/repo from remote '${REMOTE:-origin}'"
+
+  f="$(_artifact_resolve "$pr_dir" "$branch" 2>/dev/null)" || true
+  if [ -n "$f" ]; then
+    info "PR description: $f"
+    if command -v pbcopy >/dev/null 2>&1; then
+      pbcopy < "$f"
+      info "copied to clipboard"
+    elif command -v xclip >/dev/null 2>&1; then
+      xclip -selection clipboard < "$f"
+      info "copied to clipboard"
+    fi
+  else
+    warn "no PR-description file found for branch '$branch' in $pr_dir"
+  fi
+
+  if git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    if ask_yn "Push '$branch' now?" n; then
+      (cd "$wt" && git push)
+    fi
+  else
+    if ask_yn "Branch '$branch' has no upstream yet - push it now?" y; then
+      (cd "$wt" && git push -u "${REMOTE:-origin}" "$branch")
+    else
+      warn "not pushed - GitHub can't open a compare view for a branch it can't see"
+    fi
+  fi
+
+  url="https://github.com/$slug/compare/$base...$branch?expand=1"
+  info "compare URL: $url"
+  _open_url "$url"
+}
 ORCHARD_EOF
 
 echo ""
