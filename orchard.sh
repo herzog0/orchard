@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # orchard installer - https://teodoro.sh/orchard.sh
 #
-# Installs, updates, or removes the orchard Claude Code skill at
-# ~/.claude/skills/orchard/. Menu-driven via fzf, a required dependency -
-# offers to install it if it's missing. macOS and Linux only.
+# Installs, updates, or removes the orchard-bootstrap Claude Code skill at
+# ~/.claude/skills/orchard-bootstrap/. Menu-driven via fzf, a required
+# dependency - offers to install it if it's missing. macOS and Linux only.
 #
 # Usage:
 #   curl -fsSL https://teodoro.sh/orchard.sh | bash
@@ -16,7 +16,25 @@
 # from the live SKILL.md/references/ in this repo.
 set -euo pipefail
 
-SKILL_DIR="$HOME/.claude/skills/orchard"
+SKILL_DIR="$HOME/.claude/skills/orchard-bootstrap"
+OLD_SKILL_DIR="$HOME/.claude/skills/orchard"
+
+# -----------------------------------------------------------------------
+# One-time rename migration: the skill used to install as "orchard" - if
+# that old path exists and isn't just a leftover symlink/copy of the new one,
+# flag it once so it doesn't sit around invisibly alongside the new name.
+# -----------------------------------------------------------------------
+if [ -e "$OLD_SKILL_DIR" ] && [ "$OLD_SKILL_DIR" != "$SKILL_DIR" ]; then
+  echo "Found an old install at $OLD_SKILL_DIR - this skill is now named"
+  echo "orchard-bootstrap and installs to $SKILL_DIR instead."
+  printf "Remove the old one now? [y/N] "
+  read -r reply </dev/tty || reply=""
+  case "$reply" in
+    y|Y|yes|YES) rm -rf "$OLD_SKILL_DIR"; echo "Removed $OLD_SKILL_DIR." ;;
+    *) echo "Leaving $OLD_SKILL_DIR in place - remove it yourself whenever you like." ;;
+  esac
+  echo ""
+fi
 
 # -----------------------------------------------------------------------
 # OS detection - macOS and Linux only, nothing else is supported.
@@ -71,9 +89,9 @@ if ! command -v fzf >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------
-# The generation registry - written by the /orchard skill itself (inside a
+# The generation registry - written by the /orchard-bootstrap skill itself (inside a
 # Claude Code session, per SKILL.md step 4), not by this installer. It lives
-# outside SKILL_DIR on purpose: removing the orchard skill must never orphan
+# outside SKILL_DIR on purpose: removing the orchard-bootstrap skill must never orphan
 # it, since it's what lets a later "clean up" find per-project CLIs/skills
 # orchard generated, long after the skill that made them may itself be gone.
 # One row per bootstrap: alias, project root, CLI dir, that dir's git root,
@@ -98,10 +116,10 @@ menu=()
 if [ -e "$SKILL_DIR" ]; then
   menu+=("Update - overwrite $SKILL_DIR with the current published version")
 else
-  menu+=("Create - install the orchard skill to $SKILL_DIR")
+  menu+=("Create - install the orchard-bootstrap skill to $SKILL_DIR")
 fi
 if [ -e "$SKILL_DIR" ] || registry_has_entries; then
-  menu+=("Clean up - remove the orchard skill and/or per-project CLIs/skills it generated")
+  menu+=("Clean up - remove the orchard-bootstrap skill and/or per-project CLIs/skills it generated")
 fi
 
 choice="$(printf '%s\n' "${menu[@]}" | fzf --prompt="orchard> " --height=40% --reverse --header="Enter: choose   Esc: cancel")"
@@ -111,7 +129,7 @@ if [[ "$choice" == "Clean up"* ]]; then
   labels=(); kinds=(); aliases=(); project_roots=(); cli_dirs=(); git_roots=(); rel_paths=(); skills_csvs=(); marker_shas=()
 
   if [ -e "$SKILL_DIR" ]; then
-    labels+=("orchard skill itself - $SKILL_DIR")
+    labels+=("orchard-bootstrap skill itself - $SKILL_DIR")
     kinds+=("SKILL"); aliases+=(""); project_roots+=(""); cli_dirs+=(""); git_roots+=(""); rel_paths+=(""); skills_csvs+=(""); marker_shas+=("")
   fi
 
@@ -140,7 +158,7 @@ if [[ "$choice" == "Clean up"* ]]; then
 
     if [ "${kinds[$idx]}" = "SKILL" ]; then
       echo ""
-      echo "--- orchard skill - $SKILL_DIR ---"
+      echo "--- orchard-bootstrap skill - $SKILL_DIR ---"
       echo "This removes $SKILL_DIR only - never a git worktree, never anything under"
       echo "the registry entries above."
       printf "Remove it? [y/N] "
@@ -232,11 +250,11 @@ mkdir -p "$SKILL_DIR/references"
 mkdir -p "$(dirname "$SKILL_DIR/SKILL.md")"
 cat > "$SKILL_DIR/SKILL.md" <<'ORCHARD_EOF'
 ---
-name: orchard
+name: orchard-bootstrap
 description: Bootstrap a project-specific worktree-isolation CLI, a short shell alias for it, and a matching family of alias-prefixed parallel-agent skills (task launcher, ticket launcher, PR reviewers, and two skills that let you retune the review checklist or the PR-description template by describing the change in a sentence) for the CURRENT project - by auditing its stack, proposing an isolation strategy, and generating fresh, stack-appropriate code, never copying another project's boostctl or skills verbatim. Use when the user wants isolated parallel dev environments (worktrees with their own ports/env/db, or their own dependency install if there's no runtime service) for a new or existing project, or asks to replicate a "boostctl"-style setup elsewhere. One-time setup skill, not a recurring dev-loop skill - once it's done, the generated CLI and skills are what you use day to day.
 ---
 
-# Orchard (meta-bootstrapper)
+# orchard-bootstrap — meta-bootstrapper for isolated parallel dev environments
 
 Turns "I want what boostctl gave that other project" into a CLI, its alias,
 and a skill family built **for this project's actual stack** - not a port of
@@ -734,6 +752,15 @@ anything with state - a database volume, a large cache), and whatever
 `doctor` command that re-runs the audit from Mechanism 3 plus any other
 drift checks - cheap insurance once the tool exists at all.
 
+**Every command here that targets one worktree among several resolves it
+the same way, in this order: an explicit path/identifier argument if one was
+given; the worktree containing the current directory, if there is one and
+the command was run from inside it; failing both, Mechanism 10's picker.**
+Never require the identifier as a hard argument when it could instead be
+picked interactively - that's the whole point of building the picker at
+all. This is a direct generalization of boostctl's own `resolve_worktree()`
+chain, not a new idea invented for this generic version.
+
 ## Mechanism 8: the shared scratch/output directory
 
 Every generated skill needs somewhere to put its own artifacts - PR-
@@ -789,6 +816,14 @@ this a one-liner:
   default handler for the file type.
 - `<bin> review path <ref>` - print just the resolved path, for piping into
   another command.
+
+**`<ref>` is optional on all three, not a required argument.** Called with
+no `<ref>`, each one runs Mechanism 10's picker over the `list` output
+instead of erroring - the same "don't make the user type an identifier they
+could instead select" rule as Mechanism 7's lifecycle commands. Reserve a
+hard argument requirement for a genuinely non-interactive context (piped
+output, `BOOSTCTL_YES`-style scripted mode), never for ordinary interactive
+use.
 
 Add the same shape for PR-description artifacts, alongside whatever
 find-by-branch behavior Mechanism 6's `pr` command already has (e.g.
@@ -882,7 +917,7 @@ history). So:
 
 Either way, that commit's message carries a fixed, greppable marker prefix
 (e.g. `[orchard] initial generation`) and its SHA is what the registry
-records as the pristine baseline. Any later `/orchard` regeneration of the
+records as the pristine baseline. Any later `/orchard-bootstrap` regeneration of the
 same project commits again with the same marker prefix (e.g.
 `[orchard] regenerate <alias> CLI`) - only a commit *without* that prefix
 means the user touched something themselves.
@@ -1329,6 +1364,6 @@ extend rather than duplicate - per SKILL.md step 0.
 ORCHARD_EOF
 
 echo ""
-echo "orchard installed to $SKILL_DIR"
+echo "orchard-bootstrap installed to $SKILL_DIR"
 echo "Restart Claude Code (or start a new session) so it picks up the skill,"
-echo "then run /orchard in any project to bootstrap its isolation CLI + skills."
+echo "then run /orchard-bootstrap in any project to bootstrap its isolation CLI + skills."

@@ -1,9 +1,9 @@
 ---
-name: orchard
+name: orchard-bootstrap
 description: Bootstrap a project-specific worktree-isolation CLI, a short shell alias for it, and a matching family of alias-prefixed parallel-agent skills (task launcher, ticket launcher, PR reviewers, and two skills that let you retune the review checklist or the PR-description template by describing the change in a sentence) for the CURRENT project - by auditing its stack, proposing an isolation strategy, and generating fresh, stack-appropriate code, never copying another project's boostctl or skills verbatim. Use when the user wants isolated parallel dev environments (worktrees with their own ports/env/db, or their own dependency install if there's no runtime service) for a new or existing project, or asks to replicate a "boostctl"-style setup elsewhere. One-time setup skill, not a recurring dev-loop skill - once it's done, the generated CLI and skills are what you use day to day.
 ---
 
-# Orchard (meta-bootstrapper)
+# orchard-bootstrap — meta-bootstrapper for isolated parallel dev environments
 
 Turns "I want what boostctl gave that other project" into a CLI, its alias,
 and a skill family built **for this project's actual stack** - not a port of

@@ -2,12 +2,16 @@
 """Regenerate orchard.sh from SKILL.md and references/ in this repo.
 
 This repo's root doubles as the Claude Code skill directory - in the
-author's own setup, ~/.claude/skills/orchard is a symlink to this checkout,
-so editing SKILL.md or references/ here is live immediately. Re-run this
-script after any such edit to keep orchard.sh in sync; never hand-edit
-orchard.sh directly. Served at https://teodoro.sh/orchard.sh via GitHub
-Pages (CNAME file at repo root) and directly from GitHub at
+author's own setup, ~/.claude/skills/orchard-bootstrap is a symlink to this
+checkout, so editing SKILL.md or references/ here is live immediately.
+Re-run this script after any such edit to keep orchard.sh in sync; never
+hand-edit orchard.sh directly. Served at https://teodoro.sh/orchard.sh via
+GitHub Pages (CNAME file at repo root) and directly from GitHub at
 https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh.
+
+Note the repo/domain/installer keep the short name "orchard" - only the
+Claude Code skill it installs is named "orchard-bootstrap" (SKILL_DIR
+below), same split as boostctl-the-binary vs. bcl-the-alias.
 """
 from pathlib import Path
 
@@ -24,9 +28,9 @@ FILES = [
 HEADER = r"""#!/usr/bin/env bash
 # orchard installer - https://teodoro.sh/orchard.sh
 #
-# Installs, updates, or removes the orchard Claude Code skill at
-# ~/.claude/skills/orchard/. Menu-driven via fzf, a required dependency -
-# offers to install it if it's missing. macOS and Linux only.
+# Installs, updates, or removes the orchard-bootstrap Claude Code skill at
+# ~/.claude/skills/orchard-bootstrap/. Menu-driven via fzf, a required
+# dependency - offers to install it if it's missing. macOS and Linux only.
 #
 # Usage:
 #   curl -fsSL https://teodoro.sh/orchard.sh | bash
@@ -39,7 +43,25 @@ HEADER = r"""#!/usr/bin/env bash
 # from the live SKILL.md/references/ in this repo.
 set -euo pipefail
 
-SKILL_DIR="$HOME/.claude/skills/orchard"
+SKILL_DIR="$HOME/.claude/skills/orchard-bootstrap"
+OLD_SKILL_DIR="$HOME/.claude/skills/orchard"
+
+# -----------------------------------------------------------------------
+# One-time rename migration: the skill used to install as "orchard" - if
+# that old path exists and isn't just a leftover symlink/copy of the new one,
+# flag it once so it doesn't sit around invisibly alongside the new name.
+# -----------------------------------------------------------------------
+if [ -e "$OLD_SKILL_DIR" ] && [ "$OLD_SKILL_DIR" != "$SKILL_DIR" ]; then
+  echo "Found an old install at $OLD_SKILL_DIR - this skill is now named"
+  echo "orchard-bootstrap and installs to $SKILL_DIR instead."
+  printf "Remove the old one now? [y/N] "
+  read -r reply </dev/tty || reply=""
+  case "$reply" in
+    y|Y|yes|YES) rm -rf "$OLD_SKILL_DIR"; echo "Removed $OLD_SKILL_DIR." ;;
+    *) echo "Leaving $OLD_SKILL_DIR in place - remove it yourself whenever you like." ;;
+  esac
+  echo ""
+fi
 
 # -----------------------------------------------------------------------
 # OS detection - macOS and Linux only, nothing else is supported.
@@ -94,9 +116,9 @@ if ! command -v fzf >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------
-# The generation registry - written by the /orchard skill itself (inside a
+# The generation registry - written by the /orchard-bootstrap skill itself (inside a
 # Claude Code session, per SKILL.md step 4), not by this installer. It lives
-# outside SKILL_DIR on purpose: removing the orchard skill must never orphan
+# outside SKILL_DIR on purpose: removing the orchard-bootstrap skill must never orphan
 # it, since it's what lets a later "clean up" find per-project CLIs/skills
 # orchard generated, long after the skill that made them may itself be gone.
 # One row per bootstrap: alias, project root, CLI dir, that dir's git root,
@@ -121,10 +143,10 @@ menu=()
 if [ -e "$SKILL_DIR" ]; then
   menu+=("Update - overwrite $SKILL_DIR with the current published version")
 else
-  menu+=("Create - install the orchard skill to $SKILL_DIR")
+  menu+=("Create - install the orchard-bootstrap skill to $SKILL_DIR")
 fi
 if [ -e "$SKILL_DIR" ] || registry_has_entries; then
-  menu+=("Clean up - remove the orchard skill and/or per-project CLIs/skills it generated")
+  menu+=("Clean up - remove the orchard-bootstrap skill and/or per-project CLIs/skills it generated")
 fi
 
 choice="$(printf '%s\n' "${menu[@]}" | fzf --prompt="orchard> " --height=40% --reverse --header="Enter: choose   Esc: cancel")"
@@ -134,7 +156,7 @@ if [[ "$choice" == "Clean up"* ]]; then
   labels=(); kinds=(); aliases=(); project_roots=(); cli_dirs=(); git_roots=(); rel_paths=(); skills_csvs=(); marker_shas=()
 
   if [ -e "$SKILL_DIR" ]; then
-    labels+=("orchard skill itself - $SKILL_DIR")
+    labels+=("orchard-bootstrap skill itself - $SKILL_DIR")
     kinds+=("SKILL"); aliases+=(""); project_roots+=(""); cli_dirs+=(""); git_roots+=(""); rel_paths+=(""); skills_csvs+=(""); marker_shas+=("")
   fi
 
@@ -163,7 +185,7 @@ if [[ "$choice" == "Clean up"* ]]; then
 
     if [ "${kinds[$idx]}" = "SKILL" ]; then
       echo ""
-      echo "--- orchard skill - $SKILL_DIR ---"
+      echo "--- orchard-bootstrap skill - $SKILL_DIR ---"
       echo "This removes $SKILL_DIR only - never a git worktree, never anything under"
       echo "the registry entries above."
       printf "Remove it? [y/N] "
@@ -255,9 +277,9 @@ mkdir -p "$SKILL_DIR/references"
 
 FOOTER = """
 echo ""
-echo "orchard installed to $SKILL_DIR"
+echo "orchard-bootstrap installed to $SKILL_DIR"
 echo "Restart Claude Code (or start a new session) so it picks up the skill,"
-echo "then run /orchard in any project to bootstrap its isolation CLI + skills."
+echo "then run /orchard-bootstrap in any project to bootstrap its isolation CLI + skills."
 """
 
 

@@ -2,6 +2,8 @@
 
 **A Claude Code skill that bootstraps isolated, parallel dev environments — and the skills to drive them — for whatever project you point it at.**
 
+The repo and the installer keep the short name, `orchard`; the Claude Code skill it installs is named `orchard-bootstrap` (invoked as `/orchard-bootstrap`) — same split as `boostctl` the binary vs. `bcl` the alias.
+
 ## What it does
 
 Point Orchard at a repo and it:
@@ -33,7 +35,7 @@ Generated skills never assume the reader has read Orchard's own instructions —
 curl -fsSL https://teodoro.sh/orchard.sh | bash
 ```
 
-Or, straight from GitHub (works even before DNS/Pages finishes propagating):
+Or, straight from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
@@ -43,13 +45,13 @@ macOS or Linux, with an interactive terminal (the installer's menu needs one —
 
 Once fzf is available, you get a menu:
 
-- **Create** — first run, nothing installed yet: writes `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard/`.
+- **Create** — first run, nothing installed yet: writes `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard-bootstrap/`.
 - **Update** — already installed: overwrites it with the current published version.
-- **Clean up** — a checklist you pick from: the orchard skill itself, and/or any per-project CLI + skill family Orchard has previously generated (tracked in `~/.claude/orchard/generated.tsv`, written by the `/orchard` skill itself at generation time — see `references/cli-architecture.md`'s Mechanism 11). Never deletes a git worktree. A per-project CLI is only removed if nothing's been committed to it since Orchard generated it — anything with the user's own commits since is left alone, with the exact `rm -rf` command printed instead. Never touches a shell rc file either way; if an alias was registered for something removed, you remove that line yourself.
+- **Clean up** — a checklist you pick from: the orchard-bootstrap skill itself, and/or any per-project CLI + skill family it has previously generated (tracked in `~/.claude/orchard/generated.tsv`, written by the `/orchard-bootstrap` skill itself at generation time — see `references/cli-architecture.md`'s Mechanism 11). Never deletes a git worktree. A per-project CLI is only removed if nothing's been committed to it since generation — anything with the user's own commits since is left alone, with the exact `rm -rf` command printed instead. Never touches a shell rc file either way; if an alias was registered for something removed, you remove that line yourself.
 
-Safe to re-run — no side effects outside `~/.claude/skills/orchard/`, `~/.claude/orchard/generated.tsv`, and whatever specific per-project paths you explicitly confirm removing.
+Safe to re-run — no side effects outside `~/.claude/skills/orchard-bootstrap/`, `~/.claude/orchard/generated.tsv`, and whatever specific per-project paths you explicitly confirm removing.
 
-Restart Claude Code (or start a new session) afterward so it picks up the skill, then run `/orchard` in any project.
+Restart Claude Code (or start a new session) afterward so it picks up the skill, then run `/orchard-bootstrap` in any project.
 
 <details>
 <summary><strong>Alternative: clone directly</strong></summary>
@@ -57,7 +59,7 @@ Restart Claude Code (or start a new session) afterward so it picks up the skill,
 If you'd rather track updates with git instead of re-running the installer (this also skips the fzf requirement entirely — the installer's menu is the only thing that needs it):
 
 ```bash
-git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard
+git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard-bootstrap
 ```
 
 </details>
@@ -68,7 +70,7 @@ git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard
 .
 ├── SKILL.md                        # the orchestration/interview procedure
 ├── references/
-│   ├── cli-architecture.md         # the 10 generic isolation mechanisms
+│   ├── cli-architecture.md         # the 11 generic isolation mechanisms
 │   ├── companion-skills-template.md # the generated skill family's shape
 │   └── audit-checklist.md          # concrete stack-detection commands
 ├── scripts/

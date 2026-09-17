@@ -133,6 +133,15 @@ anything with state - a database volume, a large cache), and whatever
 `doctor` command that re-runs the audit from Mechanism 3 plus any other
 drift checks - cheap insurance once the tool exists at all.
 
+**Every command here that targets one worktree among several resolves it
+the same way, in this order: an explicit path/identifier argument if one was
+given; the worktree containing the current directory, if there is one and
+the command was run from inside it; failing both, Mechanism 10's picker.**
+Never require the identifier as a hard argument when it could instead be
+picked interactively - that's the whole point of building the picker at
+all. This is a direct generalization of boostctl's own `resolve_worktree()`
+chain, not a new idea invented for this generic version.
+
 ## Mechanism 8: the shared scratch/output directory
 
 Every generated skill needs somewhere to put its own artifacts - PR-
@@ -188,6 +197,14 @@ this a one-liner:
   default handler for the file type.
 - `<bin> review path <ref>` - print just the resolved path, for piping into
   another command.
+
+**`<ref>` is optional on all three, not a required argument.** Called with
+no `<ref>`, each one runs Mechanism 10's picker over the `list` output
+instead of erroring - the same "don't make the user type an identifier they
+could instead select" rule as Mechanism 7's lifecycle commands. Reserve a
+hard argument requirement for a genuinely non-interactive context (piped
+output, `BOOSTCTL_YES`-style scripted mode), never for ordinary interactive
+use.
 
 Add the same shape for PR-description artifacts, alongside whatever
 find-by-branch behavior Mechanism 6's `pr` command already has (e.g.
@@ -281,7 +298,7 @@ history). So:
 
 Either way, that commit's message carries a fixed, greppable marker prefix
 (e.g. `[orchard] initial generation`) and its SHA is what the registry
-records as the pristine baseline. Any later `/orchard` regeneration of the
+records as the pristine baseline. Any later `/orchard-bootstrap` regeneration of the
 same project commits again with the same marker prefix (e.g.
 `[orchard] regenerate <alias> CLI`) - only a commit *without* that prefix
 means the user touched something themselves.
