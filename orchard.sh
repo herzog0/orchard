@@ -71,31 +71,155 @@ if ! command -v fzf >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------
-# Menu - contextual on whether orchard is already installed. Never offers
-# "update" or "clean up" against nothing; "clean up" only ever touches
-# SKILL_DIR itself - it never deletes a git worktree or any project-specific
-# CLI/skills orchard generated elsewhere.
+# The generation registry - written by the /orchard skill itself (inside a
+# Claude Code session, per SKILL.md step 4), not by this installer. It lives
+# outside SKILL_DIR on purpose: removing the orchard skill must never orphan
+# it, since it's what lets a later "clean up" find per-project CLIs/skills
+# orchard generated, long after the skill that made them may itself be gone.
+# One row per bootstrap: alias, project root, CLI dir, that dir's git root,
+# its path relative to the git root, comma-separated companion skill dirs,
+# the "[orchard] initial generation" marker commit's SHA, creation date.
+# -----------------------------------------------------------------------
+ORCHARD_REGISTRY="$HOME/.claude/orchard/generated.tsv"
+
+registry_has_entries() {
+  [ -f "$ORCHARD_REGISTRY" ] || return 1
+  awk -F'\t' '$1 != "" && $1 !~ /^#/ { found=1 } END { exit !found }' "$ORCHARD_REGISTRY"
+}
+
+# -----------------------------------------------------------------------
+# Menu - contextual on whether orchard is already installed and on whether
+# the registry above has anything a "clean up" could act on. Never offers
+# "update" against nothing; "clean up" always removes only what's picked,
+# never a git worktree, and never anything a project-specific CLI wasn't
+# itself confirmed to have generated.
 # -----------------------------------------------------------------------
 menu=()
 if [ -e "$SKILL_DIR" ]; then
   menu+=("Update - overwrite $SKILL_DIR with the current published version")
-  menu+=("Clean up - remove $SKILL_DIR (never touches worktrees or generated per-project CLIs/skills)")
 else
   menu+=("Create - install the orchard skill to $SKILL_DIR")
+fi
+if [ -e "$SKILL_DIR" ] || registry_has_entries; then
+  menu+=("Clean up - remove the orchard skill and/or per-project CLIs/skills it generated")
 fi
 
 choice="$(printf '%s\n' "${menu[@]}" | fzf --prompt="orchard> " --height=40% --reverse --header="Enter: choose   Esc: cancel")"
 [ -n "${choice:-}" ] || { echo "Cancelled."; exit 0; }
 
 if [[ "$choice" == "Clean up"* ]]; then
-  echo "This removes $SKILL_DIR only."
-  echo "It will NOT delete any git worktrees, or any project-specific CLI/skills orchard generated elsewhere."
-  printf "Proceed? [y/N] "
-  read -r reply </dev/tty || reply=""
-  case "$reply" in
-    y|Y|yes|YES) rm -rf "$SKILL_DIR"; echo "Removed $SKILL_DIR." ;;
-    *) echo "Cancelled." ;;
-  esac
+  labels=(); kinds=(); aliases=(); project_roots=(); cli_dirs=(); git_roots=(); rel_paths=(); skills_csvs=(); marker_shas=()
+
+  if [ -e "$SKILL_DIR" ]; then
+    labels+=("orchard skill itself - $SKILL_DIR")
+    kinds+=("SKILL"); aliases+=(""); project_roots+=(""); cli_dirs+=(""); git_roots+=(""); rel_paths+=(""); skills_csvs+=(""); marker_shas+=("")
+  fi
+
+  if [ -f "$ORCHARD_REGISTRY" ]; then
+    # shellcheck disable=SC2034  # r_created is read for column alignment, not displayed
+    while IFS=$'\t' read -r r_alias r_project r_clidir r_gitroot r_relpath r_skills r_marker r_created; do
+      case "$r_alias" in ""|"#"*) continue ;; esac
+      labels+=("${r_alias} CLI for ${r_project} - ${r_clidir}")
+      kinds+=("PROJECT")
+      aliases+=("$r_alias"); project_roots+=("$r_project"); cli_dirs+=("$r_clidir")
+      git_roots+=("$r_gitroot"); rel_paths+=("$r_relpath"); skills_csvs+=("$r_skills"); marker_shas+=("$r_marker")
+    done < "$ORCHARD_REGISTRY"
+  fi
+
+  picks="$(printf '%s\n' "${labels[@]}" | fzf --multi --prompt="clean up> " --height=40% --reverse --header="Tab: mark   Enter: confirm   Esc: cancel")"
+  [ -n "${picks:-}" ] || { echo "Cancelled."; exit 0; }
+
+  removed=(); left_alone=()
+
+  while IFS= read -r label; do
+    idx=-1
+    for i in "${!labels[@]}"; do
+      [ "${labels[$i]}" = "$label" ] && { idx=$i; break; }
+    done
+    [ "$idx" -ge 0 ] || continue
+
+    if [ "${kinds[$idx]}" = "SKILL" ]; then
+      echo ""
+      echo "--- orchard skill - $SKILL_DIR ---"
+      echo "This removes $SKILL_DIR only - never a git worktree, never anything under"
+      echo "the registry entries above."
+      printf "Remove it? [y/N] "
+      read -r reply </dev/tty || reply=""
+      case "$reply" in
+        y|Y|yes|YES) rm -rf "$SKILL_DIR"; removed+=("$SKILL_DIR"); ;;
+        *) left_alone+=("$SKILL_DIR (skipped by choice)") ;;
+      esac
+      continue
+    fi
+
+    alias_="${aliases[$idx]}"; project="${project_roots[$idx]}"; clidir="${cli_dirs[$idx]}"
+    gitroot="${git_roots[$idx]}"; relpath="${rel_paths[$idx]}"; skillscsv="${skills_csvs[$idx]}"; marker="${marker_shas[$idx]}"
+
+    echo ""
+    echo "--- ${alias_} (project: ${project}) ---"
+
+    if [ ! -d "$clidir" ]; then
+      echo "$clidir no longer exists - clearing its registry entry only."
+      awk -F'\t' -v a="$alias_" 'BEGIN{OFS="\t"} $1 != a' "$ORCHARD_REGISTRY" > "${ORCHARD_REGISTRY}.tmp" && mv "${ORCHARD_REGISTRY}.tmp" "$ORCHARD_REGISTRY"
+      continue
+    fi
+
+    foreign=""
+    if [ -n "$gitroot" ] && [ -n "$marker" ] && git -C "$gitroot" cat-file -e "${marker}^{commit}" 2>/dev/null; then
+      foreign="$(git -C "$gitroot" log --format='%s' "${marker}..HEAD" -- "$relpath" 2>/dev/null | grep -v '^\[orchard\]' || true)"
+    else
+      foreign="(unable to verify - marker commit not found; treating as unsafe)"
+    fi
+
+    if [ -n "$foreign" ]; then
+      echo "SKIPPING - this has commits orchard did not make:"
+      while IFS= read -r line; do echo "    $line"; done <<< "$foreign"
+      echo "Remove it yourself once you're sure, then re-run clean up to clear the registry entry:"
+      echo "  rm -rf \"$clidir\""
+      IFS=',' read -ra sdirs <<< "$skillscsv"
+      for sd in "${sdirs[@]}"; do
+        [ -n "$sd" ] && echo "  rm -rf \"$sd\""
+      done
+      left_alone+=("$clidir (has non-orchard commits - see command printed above)")
+      continue
+    fi
+
+    printf "Remove %s and its skill directories (%s)? [y/N] " "$clidir" "$skillscsv"
+    read -r reply </dev/tty || reply=""
+    case "$reply" in
+      y|Y|yes|YES)
+        rm -rf "$clidir"
+        removed+=("$clidir")
+        IFS=',' read -ra sdirs <<< "$skillscsv"
+        for sd in "${sdirs[@]}"; do
+          [ -n "$sd" ] && { rm -rf "$sd"; removed+=("$sd"); }
+        done
+        awk -F'\t' -v a="$alias_" 'BEGIN{OFS="\t"} $1 != a' "$ORCHARD_REGISTRY" > "${ORCHARD_REGISTRY}.tmp" && mv "${ORCHARD_REGISTRY}.tmp" "$ORCHARD_REGISTRY"
+        if [ "$gitroot" != "$clidir" ]; then
+          echo "Note: $clidir lived inside $gitroot, a repo you track for other things too -"
+          echo "this deletion is now an uncommitted change there; commit it yourself if you want."
+        fi
+        ;;
+      *) left_alone+=("$clidir (skipped by choice)") ;;
+    esac
+  done <<< "$picks"
+
+  echo ""
+  echo "=== Clean up report ==="
+  if [ "${#removed[@]}" -gt 0 ]; then
+    echo "Removed:"
+    for p in "${removed[@]}"; do echo "  $p"; done
+  else
+    echo "Removed: nothing."
+  fi
+  if [ "${#left_alone[@]}" -gt 0 ]; then
+    echo "Left alone:"
+    for p in "${left_alone[@]}"; do echo "  $p"; done
+  fi
+  echo ""
+  echo "This never touched your shell rc file. If any of the above had an alias"
+  echo "registered for it, remove that line yourself - orchard never edits a shell"
+  echo "rc file except to append a new alias, with your confirmation, at generation time."
   exit 0
 fi
 
@@ -131,6 +255,9 @@ it never becomes part of the thing it builds.
    works either way.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
+   Every generation is tracked so it can be safely torn down later - see
+   [references/cli-architecture.md](references/cli-architecture.md)'s
+   Mechanism 11 and this skill's step 7.
 3. Up to six alias-prefixed companion skills - free-text task launcher,
    ticket launcher, batch PR reviewer, single PR/branch reviewer, and two
    "tune this by describing the change" skills that edit the review
@@ -186,11 +313,14 @@ is the detection checklist for step 1 below.
   never block the CLI from working by typed commands.
 - **The shell rc file is the user's, not this skill's.** Registering the
   alias (step 4) edits `~/.zshrc`/`~/.bashrc`/the fish config - a global file
-  outside the project, loaded by every terminal the user opens. Show the
-  exact line before writing it, confirm, and check first whether an alias of
-  that name already exists (a name collision with something the user
-  already relies on is worse than skipping the alias) rather than appending
-  blindly. Never rely on the alias inside a generated skill's own command
+  outside the project, loaded by every terminal the user opens. **Ask before
+  touching it** - show the exact line, wait for an explicit yes, and check
+  first whether an alias of that name already exists (a name collision with
+  something the user already relies on is worse than skipping the alias)
+  rather than appending blindly. This file is never edited any other way,
+  in either direction: teardown (step 7) never removes a line from it either
+  - it only ever prints the line and asks the user to remove it themselves.
+  Never rely on the alias inside a generated skill's own command
   invocations - see [references/companion-skills-template.md](references/companion-skills-template.md)'s
   `{{CLI_BIN}}` vs `{{CLI_ALIAS}}` distinction for why.
 
@@ -387,6 +517,19 @@ Ask about, at minimum:
 - Never invent a value a placeholder needs - if something wasn't covered in
   steps 1-3, go back and ask rather than guessing it into the generated
   file.
+- **Mark this generation for safe future teardown**, per
+  [references/cli-architecture.md](references/cli-architecture.md)'s
+  Mechanism 11: `git init` the CLI's directory if nothing already tracks it,
+  or commit into whatever repo already does (never re-init over existing
+  history); either way, commit the newly written files with a message
+  carrying the `[orchard] initial generation` marker prefix. Append one row
+  to `~/.claude/orchard/generated.tsv` (create it if missing) - alias,
+  project root, CLI directory, that directory's git root, its path relative
+  to the git root, the companion skill directories, the marker commit's SHA,
+  today's date. This registry is what a future teardown (step 7) uses to
+  find and safely remove what was generated here - it lives outside both
+  this skill's own directory and the target project, so neither removing
+  Orchard itself nor anything in the project orphans it.
 
 ### 5. Validate
 
@@ -404,12 +547,54 @@ unilaterally, the user may want to keep using it.
 
 ### 6. Report
 
-One short summary: what was written and where (CLI path, README, the alias
-and the rc file it was added to, each skill's path), the isolation strategy
-chosen and why, and the exact next command to try (e.g.
-`/<alias>-free-ask <a small real task>`). Note that skills registered mid-session may
-need a session restart to show up, and that the alias needs a new terminal
-(or a manual `source`) before it works interactively.
+Two explicit, itemized lists - never a summarizing paragraph that makes the
+user reconstruct what actually happened:
+
+- **Created** - every path written from scratch: the CLI directory, its
+  README, each companion skill's path, the registry row appended in step 4.
+- **Edited** - every pre-existing file this touched: the shell rc file (name
+  it, and quote the exact line appended), `.gitignore` if a line was added
+  for a new scratch directory.
+
+Follow with the isolation strategy chosen and why, and the exact next
+command to try (e.g. `/<alias>-free-ask <a small real task>`). Note that
+skills registered mid-session may need a session restart to show up, and
+that the alias needs a new terminal (or a manual `source`) before it works
+interactively.
+
+### 7. Teardown (only when explicitly asked)
+
+Only runs when the user explicitly asks to remove a previously generated
+CLI/skill-family for a project - never inferred, never offered unprompted
+mid-bootstrap. Per
+[references/cli-architecture.md](references/cli-architecture.md)'s
+Mechanism 11:
+
+1. **Look up the registry row** (`~/.claude/orchard/generated.tsv`) for the
+   named project/alias. If there's no row, say so and stop - there's
+   nothing this skill's own bookkeeping can safely act on (the user can
+   still remove things by hand; this step just isn't the one doing it
+   without a record to check against).
+2. **Run the safety check** from Mechanism 11: scoped `git log` between the
+   marker commit and `HEAD`, restricted to the CLI's own path. Anything
+   without the `[orchard]` marker prefix - or a marker commit that no longer
+   resolves at all - means stop. Never delete in that case.
+3. **If clean**: remove the CLI directory and every companion skill
+   directory the registry row lists, then remove that row from the
+   registry. If the CLI lived inside a pre-existing repo the user tracks for
+   other things, say so and note the deletion is now an uncommitted change
+   in *their* repo - not this skill's place to commit on their behalf.
+4. **If dirty (or unverifiable)**: touch nothing. Print the exact `rm -rf`
+   commands for the CLI directory and each companion skill directory, name
+   which commits made it unsafe (or that the marker commit itself is gone),
+   and stop there.
+5. **Never remove the shell alias line.** Whether step 3 or step 4 applied,
+   print the exact line and the rc file it lives in, and tell the user to
+   remove it themselves - teardown edits nothing in a shell rc file, ever,
+   the same non-negotiable as step 4's registration side.
+6. **Report itemized**, same shape as step 6: what was **removed** (exact
+   paths), what was **found but left alone** (exact paths, and why), and the
+   exact alias line the user still needs to remove by hand.
 ORCHARD_EOF
 
 mkdir -p "$(dirname "$SKILL_DIR/references/cli-architecture.md")"
@@ -662,6 +847,89 @@ explicitly in every generated skill's non-negotiables (see
 companion-skills-template.md) - the same shape of risk as Mechanism 4's
 ambient-override guard: a thing that works fine interactively becomes a
 silent hang the moment it's called from a non-interactive context.
+
+## Mechanism 11: generation tracking + safe teardown
+
+Every generated CLI (and its companion skills) is something a future session
+may need to *remove* - the user abandons the project, re-runs Orchard with a
+different answer, or just wants a clean machine. That teardown must never
+guess whether it's safe: it must know, and refuse rather than assume when it
+doesn't.
+
+**A registry outside any single project.** Record every project Orchard has
+bootstrapped in one file that lives outside both the target project's repo
+and this skill's own directory (so removing the *skill* never orphans the
+registry, and removing a *project*'s CLI never touches the skill) -
+`~/.claude/orchard/generated.tsv`. One row per bootstrap: alias, project
+root, CLI directory, the git repo root that directory resolves under, that
+directory's path relative to the git root, the companion skill directories
+(comma-separated), the marker commit (below), creation date. Same
+outside-git, tab-separated shape as Mechanism 2's per-project registry -
+this is the same idea one level up, tracking *projects* instead of
+*worktrees*.
+
+**A marker commit, made at generation time, not a fresh throwaway repo.**
+Don't assume the CLI's directory gets a brand-new git repo of its own - it
+may be created inside a directory the user already git-tracks for other
+purposes entirely (a personal scripts/tools repo with its own unrelated
+history). So:
+
+- If `git -C <cli-dir> rev-parse --show-toplevel` fails, there is no repo
+  anywhere in that directory's ancestry - `git init` it fresh.
+- If it succeeds, an existing repo already owns this location (possibly
+  rooted well above the CLI's own directory) - never re-init over someone's
+  real history. Just add the newly generated files and commit them.
+
+Either way, that commit's message carries a fixed, greppable marker prefix
+(e.g. `[orchard] initial generation`) and its SHA is what the registry
+records as the pristine baseline. Any later `/orchard` regeneration of the
+same project commits again with the same marker prefix (e.g.
+`[orchard] regenerate <alias> CLI`) - only a commit *without* that prefix
+means the user touched something themselves.
+
+**The safety check, at teardown time.** Never delete a generated CLI
+directory without first asking git, scoped to that directory specifically
+(not the whole repo it might live inside, which could have unrelated
+history moving around it):
+
+```
+git -C <git-root> log --format=%s <marker-sha>..HEAD -- <path-relative-to-git-root>
+```
+
+- Every line carries the `[orchard]` prefix (or there's no output at all) -
+  nothing but this tool has touched it since generation. Safe to remove.
+- Any line lacks the prefix - the user has committed something of their own
+  in there since. **Never delete it.** Print the exact `rm -rf <path>` (and
+  the paths of its companion skill directories) and tell the user to run it
+  themselves once they've confirmed they don't need whatever's there.
+- The marker commit itself no longer resolves (`git cat-file -e
+  <sha>^{commit}` fails - a rebase, a squash, history rewritten some other
+  way) - treat this the same as "foreign commits found": the tool can no
+  longer prove the directory is pristine, so it fails closed and hands the
+  decision back to the user rather than guessing.
+
+If the CLI lives inside a larger pre-existing repo (the `git-root` above
+isn't the CLI directory itself), removing the files leaves that deletion
+**uncommitted** in the user's own repo - this tool commits its own marker
+commits, but it never commits on the user's behalf beyond that, and
+teardown is no exception. Say so in the report so the user knows to look at
+`git status` there if they care.
+
+**Never touches the shell rc file, in either direction.** Mechanism
+"register the alias" (see SKILL.md step 4) only ever *appends*, after
+explicit confirmation. Teardown is symmetric and stricter: it never removes
+anything from the rc file automatically, full stop - it prints the exact
+alias line and the file it lives in, and tells the user to delete it
+themselves. A shell rc file is loaded by every terminal the user has open or
+will open; an automated removal that guesses wrong about which line is
+"ours" is a worse failure than leaving one stale, harmless alias behind.
+
+**Report itemized, not summarized, on both ends.** Generation (SKILL.md step
+6) and teardown both owe the user two explicit lists, not a paragraph:
+everything **created** (exact paths) and everything **edited** (exact
+paths, and for the rc file, the exact line). Teardown adds a third
+category: what it found but **refused to touch**, and why, with the manual
+command to finish the job.
 
 ## Config
 

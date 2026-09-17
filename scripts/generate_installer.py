@@ -94,31 +94,155 @@ if ! command -v fzf >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------
-# Menu - contextual on whether orchard is already installed. Never offers
-# "update" or "clean up" against nothing; "clean up" only ever touches
-# SKILL_DIR itself - it never deletes a git worktree or any project-specific
-# CLI/skills orchard generated elsewhere.
+# The generation registry - written by the /orchard skill itself (inside a
+# Claude Code session, per SKILL.md step 4), not by this installer. It lives
+# outside SKILL_DIR on purpose: removing the orchard skill must never orphan
+# it, since it's what lets a later "clean up" find per-project CLIs/skills
+# orchard generated, long after the skill that made them may itself be gone.
+# One row per bootstrap: alias, project root, CLI dir, that dir's git root,
+# its path relative to the git root, comma-separated companion skill dirs,
+# the "[orchard] initial generation" marker commit's SHA, creation date.
+# -----------------------------------------------------------------------
+ORCHARD_REGISTRY="$HOME/.claude/orchard/generated.tsv"
+
+registry_has_entries() {
+  [ -f "$ORCHARD_REGISTRY" ] || return 1
+  awk -F'\t' '$1 != "" && $1 !~ /^#/ { found=1 } END { exit !found }' "$ORCHARD_REGISTRY"
+}
+
+# -----------------------------------------------------------------------
+# Menu - contextual on whether orchard is already installed and on whether
+# the registry above has anything a "clean up" could act on. Never offers
+# "update" against nothing; "clean up" always removes only what's picked,
+# never a git worktree, and never anything a project-specific CLI wasn't
+# itself confirmed to have generated.
 # -----------------------------------------------------------------------
 menu=()
 if [ -e "$SKILL_DIR" ]; then
   menu+=("Update - overwrite $SKILL_DIR with the current published version")
-  menu+=("Clean up - remove $SKILL_DIR (never touches worktrees or generated per-project CLIs/skills)")
 else
   menu+=("Create - install the orchard skill to $SKILL_DIR")
+fi
+if [ -e "$SKILL_DIR" ] || registry_has_entries; then
+  menu+=("Clean up - remove the orchard skill and/or per-project CLIs/skills it generated")
 fi
 
 choice="$(printf '%s\n' "${menu[@]}" | fzf --prompt="orchard> " --height=40% --reverse --header="Enter: choose   Esc: cancel")"
 [ -n "${choice:-}" ] || { echo "Cancelled."; exit 0; }
 
 if [[ "$choice" == "Clean up"* ]]; then
-  echo "This removes $SKILL_DIR only."
-  echo "It will NOT delete any git worktrees, or any project-specific CLI/skills orchard generated elsewhere."
-  printf "Proceed? [y/N] "
-  read -r reply </dev/tty || reply=""
-  case "$reply" in
-    y|Y|yes|YES) rm -rf "$SKILL_DIR"; echo "Removed $SKILL_DIR." ;;
-    *) echo "Cancelled." ;;
-  esac
+  labels=(); kinds=(); aliases=(); project_roots=(); cli_dirs=(); git_roots=(); rel_paths=(); skills_csvs=(); marker_shas=()
+
+  if [ -e "$SKILL_DIR" ]; then
+    labels+=("orchard skill itself - $SKILL_DIR")
+    kinds+=("SKILL"); aliases+=(""); project_roots+=(""); cli_dirs+=(""); git_roots+=(""); rel_paths+=(""); skills_csvs+=(""); marker_shas+=("")
+  fi
+
+  if [ -f "$ORCHARD_REGISTRY" ]; then
+    # shellcheck disable=SC2034  # r_created is read for column alignment, not displayed
+    while IFS=$'\t' read -r r_alias r_project r_clidir r_gitroot r_relpath r_skills r_marker r_created; do
+      case "$r_alias" in ""|"#"*) continue ;; esac
+      labels+=("${r_alias} CLI for ${r_project} - ${r_clidir}")
+      kinds+=("PROJECT")
+      aliases+=("$r_alias"); project_roots+=("$r_project"); cli_dirs+=("$r_clidir")
+      git_roots+=("$r_gitroot"); rel_paths+=("$r_relpath"); skills_csvs+=("$r_skills"); marker_shas+=("$r_marker")
+    done < "$ORCHARD_REGISTRY"
+  fi
+
+  picks="$(printf '%s\n' "${labels[@]}" | fzf --multi --prompt="clean up> " --height=40% --reverse --header="Tab: mark   Enter: confirm   Esc: cancel")"
+  [ -n "${picks:-}" ] || { echo "Cancelled."; exit 0; }
+
+  removed=(); left_alone=()
+
+  while IFS= read -r label; do
+    idx=-1
+    for i in "${!labels[@]}"; do
+      [ "${labels[$i]}" = "$label" ] && { idx=$i; break; }
+    done
+    [ "$idx" -ge 0 ] || continue
+
+    if [ "${kinds[$idx]}" = "SKILL" ]; then
+      echo ""
+      echo "--- orchard skill - $SKILL_DIR ---"
+      echo "This removes $SKILL_DIR only - never a git worktree, never anything under"
+      echo "the registry entries above."
+      printf "Remove it? [y/N] "
+      read -r reply </dev/tty || reply=""
+      case "$reply" in
+        y|Y|yes|YES) rm -rf "$SKILL_DIR"; removed+=("$SKILL_DIR"); ;;
+        *) left_alone+=("$SKILL_DIR (skipped by choice)") ;;
+      esac
+      continue
+    fi
+
+    alias_="${aliases[$idx]}"; project="${project_roots[$idx]}"; clidir="${cli_dirs[$idx]}"
+    gitroot="${git_roots[$idx]}"; relpath="${rel_paths[$idx]}"; skillscsv="${skills_csvs[$idx]}"; marker="${marker_shas[$idx]}"
+
+    echo ""
+    echo "--- ${alias_} (project: ${project}) ---"
+
+    if [ ! -d "$clidir" ]; then
+      echo "$clidir no longer exists - clearing its registry entry only."
+      awk -F'\t' -v a="$alias_" 'BEGIN{OFS="\t"} $1 != a' "$ORCHARD_REGISTRY" > "${ORCHARD_REGISTRY}.tmp" && mv "${ORCHARD_REGISTRY}.tmp" "$ORCHARD_REGISTRY"
+      continue
+    fi
+
+    foreign=""
+    if [ -n "$gitroot" ] && [ -n "$marker" ] && git -C "$gitroot" cat-file -e "${marker}^{commit}" 2>/dev/null; then
+      foreign="$(git -C "$gitroot" log --format='%s' "${marker}..HEAD" -- "$relpath" 2>/dev/null | grep -v '^\[orchard\]' || true)"
+    else
+      foreign="(unable to verify - marker commit not found; treating as unsafe)"
+    fi
+
+    if [ -n "$foreign" ]; then
+      echo "SKIPPING - this has commits orchard did not make:"
+      while IFS= read -r line; do echo "    $line"; done <<< "$foreign"
+      echo "Remove it yourself once you're sure, then re-run clean up to clear the registry entry:"
+      echo "  rm -rf \"$clidir\""
+      IFS=',' read -ra sdirs <<< "$skillscsv"
+      for sd in "${sdirs[@]}"; do
+        [ -n "$sd" ] && echo "  rm -rf \"$sd\""
+      done
+      left_alone+=("$clidir (has non-orchard commits - see command printed above)")
+      continue
+    fi
+
+    printf "Remove %s and its skill directories (%s)? [y/N] " "$clidir" "$skillscsv"
+    read -r reply </dev/tty || reply=""
+    case "$reply" in
+      y|Y|yes|YES)
+        rm -rf "$clidir"
+        removed+=("$clidir")
+        IFS=',' read -ra sdirs <<< "$skillscsv"
+        for sd in "${sdirs[@]}"; do
+          [ -n "$sd" ] && { rm -rf "$sd"; removed+=("$sd"); }
+        done
+        awk -F'\t' -v a="$alias_" 'BEGIN{OFS="\t"} $1 != a' "$ORCHARD_REGISTRY" > "${ORCHARD_REGISTRY}.tmp" && mv "${ORCHARD_REGISTRY}.tmp" "$ORCHARD_REGISTRY"
+        if [ "$gitroot" != "$clidir" ]; then
+          echo "Note: $clidir lived inside $gitroot, a repo you track for other things too -"
+          echo "this deletion is now an uncommitted change there; commit it yourself if you want."
+        fi
+        ;;
+      *) left_alone+=("$clidir (skipped by choice)") ;;
+    esac
+  done <<< "$picks"
+
+  echo ""
+  echo "=== Clean up report ==="
+  if [ "${#removed[@]}" -gt 0 ]; then
+    echo "Removed:"
+    for p in "${removed[@]}"; do echo "  $p"; done
+  else
+    echo "Removed: nothing."
+  fi
+  if [ "${#left_alone[@]}" -gt 0 ]; then
+    echo "Left alone:"
+    for p in "${left_alone[@]}"; do echo "  $p"; done
+  fi
+  echo ""
+  echo "This never touched your shell rc file. If any of the above had an alias"
+  echo "registered for it, remove that line yourself - orchard never edits a shell"
+  echo "rc file except to append a new alias, with your confirmation, at generation time."
   exit 0
 fi
 

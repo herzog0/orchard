@@ -22,6 +22,9 @@ it never becomes part of the thing it builds.
    works either way.
 2. A short shell alias for that CLI, registered in the user's shell rc file -
    the thing they'll actually type day to day, same as `bcl` for `boostctl`.
+   Every generation is tracked so it can be safely torn down later - see
+   [references/cli-architecture.md](references/cli-architecture.md)'s
+   Mechanism 11 and this skill's step 7.
 3. Up to six alias-prefixed companion skills - free-text task launcher,
    ticket launcher, batch PR reviewer, single PR/branch reviewer, and two
    "tune this by describing the change" skills that edit the review
@@ -77,11 +80,14 @@ is the detection checklist for step 1 below.
   never block the CLI from working by typed commands.
 - **The shell rc file is the user's, not this skill's.** Registering the
   alias (step 4) edits `~/.zshrc`/`~/.bashrc`/the fish config - a global file
-  outside the project, loaded by every terminal the user opens. Show the
-  exact line before writing it, confirm, and check first whether an alias of
-  that name already exists (a name collision with something the user
-  already relies on is worse than skipping the alias) rather than appending
-  blindly. Never rely on the alias inside a generated skill's own command
+  outside the project, loaded by every terminal the user opens. **Ask before
+  touching it** - show the exact line, wait for an explicit yes, and check
+  first whether an alias of that name already exists (a name collision with
+  something the user already relies on is worse than skipping the alias)
+  rather than appending blindly. This file is never edited any other way,
+  in either direction: teardown (step 7) never removes a line from it either
+  - it only ever prints the line and asks the user to remove it themselves.
+  Never rely on the alias inside a generated skill's own command
   invocations - see [references/companion-skills-template.md](references/companion-skills-template.md)'s
   `{{CLI_BIN}}` vs `{{CLI_ALIAS}}` distinction for why.
 
@@ -278,6 +284,19 @@ Ask about, at minimum:
 - Never invent a value a placeholder needs - if something wasn't covered in
   steps 1-3, go back and ask rather than guessing it into the generated
   file.
+- **Mark this generation for safe future teardown**, per
+  [references/cli-architecture.md](references/cli-architecture.md)'s
+  Mechanism 11: `git init` the CLI's directory if nothing already tracks it,
+  or commit into whatever repo already does (never re-init over existing
+  history); either way, commit the newly written files with a message
+  carrying the `[orchard] initial generation` marker prefix. Append one row
+  to `~/.claude/orchard/generated.tsv` (create it if missing) - alias,
+  project root, CLI directory, that directory's git root, its path relative
+  to the git root, the companion skill directories, the marker commit's SHA,
+  today's date. This registry is what a future teardown (step 7) uses to
+  find and safely remove what was generated here - it lives outside both
+  this skill's own directory and the target project, so neither removing
+  Orchard itself nor anything in the project orphans it.
 
 ### 5. Validate
 
@@ -295,9 +314,51 @@ unilaterally, the user may want to keep using it.
 
 ### 6. Report
 
-One short summary: what was written and where (CLI path, README, the alias
-and the rc file it was added to, each skill's path), the isolation strategy
-chosen and why, and the exact next command to try (e.g.
-`/<alias>-free-ask <a small real task>`). Note that skills registered mid-session may
-need a session restart to show up, and that the alias needs a new terminal
-(or a manual `source`) before it works interactively.
+Two explicit, itemized lists - never a summarizing paragraph that makes the
+user reconstruct what actually happened:
+
+- **Created** - every path written from scratch: the CLI directory, its
+  README, each companion skill's path, the registry row appended in step 4.
+- **Edited** - every pre-existing file this touched: the shell rc file (name
+  it, and quote the exact line appended), `.gitignore` if a line was added
+  for a new scratch directory.
+
+Follow with the isolation strategy chosen and why, and the exact next
+command to try (e.g. `/<alias>-free-ask <a small real task>`). Note that
+skills registered mid-session may need a session restart to show up, and
+that the alias needs a new terminal (or a manual `source`) before it works
+interactively.
+
+### 7. Teardown (only when explicitly asked)
+
+Only runs when the user explicitly asks to remove a previously generated
+CLI/skill-family for a project - never inferred, never offered unprompted
+mid-bootstrap. Per
+[references/cli-architecture.md](references/cli-architecture.md)'s
+Mechanism 11:
+
+1. **Look up the registry row** (`~/.claude/orchard/generated.tsv`) for the
+   named project/alias. If there's no row, say so and stop - there's
+   nothing this skill's own bookkeeping can safely act on (the user can
+   still remove things by hand; this step just isn't the one doing it
+   without a record to check against).
+2. **Run the safety check** from Mechanism 11: scoped `git log` between the
+   marker commit and `HEAD`, restricted to the CLI's own path. Anything
+   without the `[orchard]` marker prefix - or a marker commit that no longer
+   resolves at all - means stop. Never delete in that case.
+3. **If clean**: remove the CLI directory and every companion skill
+   directory the registry row lists, then remove that row from the
+   registry. If the CLI lived inside a pre-existing repo the user tracks for
+   other things, say so and note the deletion is now an uncommitted change
+   in *their* repo - not this skill's place to commit on their behalf.
+4. **If dirty (or unverifiable)**: touch nothing. Print the exact `rm -rf`
+   commands for the CLI directory and each companion skill directory, name
+   which commits made it unsafe (or that the marker commit itself is gone),
+   and stop there.
+5. **Never remove the shell alias line.** Whether step 3 or step 4 applied,
+   print the exact line and the rc file it lives in, and tell the user to
+   remove it themselves - teardown edits nothing in a shell rc file, ever,
+   the same non-negotiable as step 4's registration side.
+6. **Report itemized**, same shape as step 6: what was **removed** (exact
+   paths), what was **found but left alone** (exact paths, and why), and the
+   exact alias line the user still needs to remove by hand.

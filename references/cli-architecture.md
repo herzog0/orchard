@@ -247,6 +247,89 @@ companion-skills-template.md) - the same shape of risk as Mechanism 4's
 ambient-override guard: a thing that works fine interactively becomes a
 silent hang the moment it's called from a non-interactive context.
 
+## Mechanism 11: generation tracking + safe teardown
+
+Every generated CLI (and its companion skills) is something a future session
+may need to *remove* - the user abandons the project, re-runs Orchard with a
+different answer, or just wants a clean machine. That teardown must never
+guess whether it's safe: it must know, and refuse rather than assume when it
+doesn't.
+
+**A registry outside any single project.** Record every project Orchard has
+bootstrapped in one file that lives outside both the target project's repo
+and this skill's own directory (so removing the *skill* never orphans the
+registry, and removing a *project*'s CLI never touches the skill) -
+`~/.claude/orchard/generated.tsv`. One row per bootstrap: alias, project
+root, CLI directory, the git repo root that directory resolves under, that
+directory's path relative to the git root, the companion skill directories
+(comma-separated), the marker commit (below), creation date. Same
+outside-git, tab-separated shape as Mechanism 2's per-project registry -
+this is the same idea one level up, tracking *projects* instead of
+*worktrees*.
+
+**A marker commit, made at generation time, not a fresh throwaway repo.**
+Don't assume the CLI's directory gets a brand-new git repo of its own - it
+may be created inside a directory the user already git-tracks for other
+purposes entirely (a personal scripts/tools repo with its own unrelated
+history). So:
+
+- If `git -C <cli-dir> rev-parse --show-toplevel` fails, there is no repo
+  anywhere in that directory's ancestry - `git init` it fresh.
+- If it succeeds, an existing repo already owns this location (possibly
+  rooted well above the CLI's own directory) - never re-init over someone's
+  real history. Just add the newly generated files and commit them.
+
+Either way, that commit's message carries a fixed, greppable marker prefix
+(e.g. `[orchard] initial generation`) and its SHA is what the registry
+records as the pristine baseline. Any later `/orchard` regeneration of the
+same project commits again with the same marker prefix (e.g.
+`[orchard] regenerate <alias> CLI`) - only a commit *without* that prefix
+means the user touched something themselves.
+
+**The safety check, at teardown time.** Never delete a generated CLI
+directory without first asking git, scoped to that directory specifically
+(not the whole repo it might live inside, which could have unrelated
+history moving around it):
+
+```
+git -C <git-root> log --format=%s <marker-sha>..HEAD -- <path-relative-to-git-root>
+```
+
+- Every line carries the `[orchard]` prefix (or there's no output at all) -
+  nothing but this tool has touched it since generation. Safe to remove.
+- Any line lacks the prefix - the user has committed something of their own
+  in there since. **Never delete it.** Print the exact `rm -rf <path>` (and
+  the paths of its companion skill directories) and tell the user to run it
+  themselves once they've confirmed they don't need whatever's there.
+- The marker commit itself no longer resolves (`git cat-file -e
+  <sha>^{commit}` fails - a rebase, a squash, history rewritten some other
+  way) - treat this the same as "foreign commits found": the tool can no
+  longer prove the directory is pristine, so it fails closed and hands the
+  decision back to the user rather than guessing.
+
+If the CLI lives inside a larger pre-existing repo (the `git-root` above
+isn't the CLI directory itself), removing the files leaves that deletion
+**uncommitted** in the user's own repo - this tool commits its own marker
+commits, but it never commits on the user's behalf beyond that, and
+teardown is no exception. Say so in the report so the user knows to look at
+`git status` there if they care.
+
+**Never touches the shell rc file, in either direction.** Mechanism
+"register the alias" (see SKILL.md step 4) only ever *appends*, after
+explicit confirmation. Teardown is symmetric and stricter: it never removes
+anything from the rc file automatically, full stop - it prints the exact
+alias line and the file it lives in, and tells the user to delete it
+themselves. A shell rc file is loaded by every terminal the user has open or
+will open; an automated removal that guesses wrong about which line is
+"ours" is a worse failure than leaving one stale, harmless alias behind.
+
+**Report itemized, not summarized, on both ends.** Generation (SKILL.md step
+6) and teardown both owe the user two explicit lists, not a paragraph:
+everything **created** (exact paths) and everything **edited** (exact
+paths, and for the rc file, the exact line). Teardown adds a third
+category: what it found but **refused to touch**, and why, with the manual
+command to finish the job.
+
 ## Config
 
 One file of overridable defaults (`: ${VAR:=default}` in shell, or the

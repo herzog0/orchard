@@ -45,9 +45,9 @@ Once fzf is available, you get a menu:
 
 - **Create** — first run, nothing installed yet: writes `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard/`.
 - **Update** — already installed: overwrites it with the current published version.
-- **Clean up** — already installed: removes `~/.claude/skills/orchard/` only. Never touches git worktrees or any project-specific CLI/skills Orchard has generated elsewhere.
+- **Clean up** — a checklist you pick from: the orchard skill itself, and/or any per-project CLI + skill family Orchard has previously generated (tracked in `~/.claude/orchard/generated.tsv`, written by the `/orchard` skill itself at generation time — see `references/cli-architecture.md`'s Mechanism 11). Never deletes a git worktree. A per-project CLI is only removed if nothing's been committed to it since Orchard generated it — anything with the user's own commits since is left alone, with the exact `rm -rf` command printed instead. Never touches a shell rc file either way; if an alias was registered for something removed, you remove that line yourself.
 
-Safe to re-run — no side effects outside `~/.claude/skills/orchard/` itself.
+Safe to re-run — no side effects outside `~/.claude/skills/orchard/`, `~/.claude/orchard/generated.tsv`, and whatever specific per-project paths you explicitly confirm removing.
 
 Restart Claude Code (or start a new session) afterward so it picks up the skill, then run `/orchard` in any project.
 
