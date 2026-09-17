@@ -39,14 +39,22 @@ Or, straight from GitHub (works even before DNS/Pages finishes propagating):
 curl -fsSL https://raw.githubusercontent.com/herzog0/orchard/main/orchard.sh | bash
 ```
 
-Both write `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard/`. Safe to re-run — no `sudo`, no prompts, no side effects outside that one directory.
+macOS or Linux, with an interactive terminal (the installer's menu needs one — it won't work piped into something non-interactive). [fzf](https://github.com/junegunn/fzf) is a required dependency: the installer offers to install it for you (`brew` on macOS; `apt`/`dnf`/`pacman`/`zypper`/`apk`, whichever is present, on Linux) if it isn't already on your `PATH`, and won't proceed without it.
+
+Once fzf is available, you get a menu:
+
+- **Create** — first run, nothing installed yet: writes `SKILL.md` and `references/*.md` into `~/.claude/skills/orchard/`.
+- **Update** — already installed: overwrites it with the current published version.
+- **Clean up** — already installed: removes `~/.claude/skills/orchard/` only. Never touches git worktrees or any project-specific CLI/skills Orchard has generated elsewhere.
+
+Safe to re-run — no side effects outside `~/.claude/skills/orchard/` itself.
 
 Restart Claude Code (or start a new session) afterward so it picks up the skill, then run `/orchard` in any project.
 
 <details>
 <summary><strong>Alternative: clone directly</strong></summary>
 
-If you'd rather track updates with git instead of re-running the installer:
+If you'd rather track updates with git instead of re-running the installer (this also skips the fzf requirement entirely — the installer's menu is the only thing that needs it):
 
 ```bash
 git clone git@github.com:herzog0/orchard.git ~/.claude/skills/orchard
